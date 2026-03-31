@@ -17,7 +17,7 @@ flowchart LR
 
     %% Componentes Principales
     subgraph CoreSystem ["Core System"]
-        GoAPI["«component» WeiCloth Core API (Go)"]
+        GoAPI["«component» WeiClothe Core API (Go)"]
         PythonML["«component» AI Classifier Service (Python)"]
     end
     class GoAPI,PythonML comp;

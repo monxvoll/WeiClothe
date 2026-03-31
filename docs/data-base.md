@@ -5,7 +5,7 @@ classDiagram
     direction TB
     
     class USER {
-        +string sub_cognito [PK]
+        +string sub_keycloak [PK]
         +string name
         +string date_birth
         +string nickname

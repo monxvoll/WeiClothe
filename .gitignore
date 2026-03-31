@@ -147,15 +147,33 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
-# Environments
-.env
-.envrc
+# Environments & config files (recursive, any depth)
+**/.env
+**/.env.*
+**/.envrc
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+**/secrets.yaml
+**/secrets.yml
+**/secrets.json
+**/secrets.toml
+**/*.secret
+**/*.secrets
+**/credentials.json
+**/credentials.yaml
+**/credentials.yml
+**/*.credentials
+**/service-account*.json
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
 
 # Spyder project settings
 .spyderproject
@@ -215,6 +233,20 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Docker/Compose config with secrets
+**/docker-compose.override.yml
+**/docker-compose.override.yaml
+
+# Terraform / IaC
+**/*.tfvars
+**/*.tfstate
+**/*.tfstate.backup
+**/.terraform/
+
+# Kubernetes secrets
+**/kubeconfig
+**/.kube/config
+
 #Go
 main
 
@@ -255,3 +287,18 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# Config local overrides (any depth)
+**/local.settings.json
+**/appsettings.Development.json
+**/appsettings.Local.json
+**/.config/local.*
+**/config.local.*
+**/*.local.yaml
+**/*.local.yml
+**/*.local.json
+**/*.local.toml
+**/*.local.conf
+**/*.local.ini
+**/*.local.cfg
+**/*.local.properties

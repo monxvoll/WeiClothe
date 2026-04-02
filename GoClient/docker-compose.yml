@@ -1,15 +1,91 @@
 services:
+  
   keycloak:
     image: quay.io/keycloak/keycloak:24.0.1
     container_name: weiclothe_iam
     environment:
-      - KEYCLOAK_ADMIN=admin
-      - KEYCLOAK_ADMIN_PASSWORD=admin
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      JAVA_OPTS_APPEND: "-Xms128m -Xmx256m"
     command: start-dev
     ports:
-      - "9090:8080" 
+      - "9090:8080"
     volumes:
       - keycloak_data:/opt/keycloak/data
+    mem_limit: 384m
+
+  # ── Production Keycloak─
+  # keycloak:
+  #   image: quay.io/keycloak/keycloak:24.0.1
+  #   container_name: weiclothe_iam
+  #   environment:
+  #     KEYCLOAK_ADMIN: ${KC_ADMIN_USER}
+  #     KEYCLOAK_ADMIN_PASSWORD: ${KC_ADMIN_PASS}
+  #     KC_DB: postgres
+  #     KC_DB_URL: jdbc:postgresql://${KC_DB_HOST}:5432/keycloak
+  #     KC_DB_USERNAME: ${KC_DB_USER}
+  #     KC_DB_PASSWORD: ${KC_DB_PASS}
+  #     KC_HOSTNAME: ${KC_HOSTNAME}
+  #   command: start --optimized
+  #   ports:
+  #     - "8443:8443"
+  #   volumes:
+  #     - keycloak_data:/opt/keycloak/data
+
+  
+  kafka:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.1
+    container_name: weiclothe_kafka
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=256M
+      - --overprovisioned
+      - --kafka-addr=INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9093
+      - --advertise-kafka-addr=INTERNAL://kafka:9092,EXTERNAL://localhost:9093
+    ports:
+      - "9093:9093"
+    volumes:
+      - kafka_data:/var/lib/redpanda/data
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Production ──
+  # kafka:
+  #   image: apache/kafka:3.9.0
+  #   container_name: weiclothe_kafka
+  #   environment:
+  #     KAFKA_NODE_ID: 1
+  #     KAFKA_PROCESS_ROLES: broker,controller
+  #     KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9094
+  #     KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  #     KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9093,CONTROLLER://0.0.0.0:9094
+  #     KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9093
+  #     KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+  #     KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+  #     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  #     KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+  #     KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+  #     KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  #     KAFKA_LOG_RETENTION_HOURS: 168
+  #     KAFKA_LOG_SEGMENT_BYTES: 1073741824
+  #   ports:
+  #     - "9093:9093"
+  #   volumes:
+  #     - kafka_data:/var/lib/kafka/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 30s
 
 volumes:
   keycloak_data:
+  kafka_data:

@@ -1,0 +1,36 @@
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    sub_keycloak VARCHAR(255) NOT NULL UNIQUE,
+    first_name VARCHAR(255) NOT NULL,
+    last_name VARCHAR(255) NOT NULL,
+    nickname VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    date_birth DATE NOT NULL,
+    gender VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TODO: Update diagram with the new table
+
+CREATE TABLE clothes (
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL REFERENCES users(id),
+    url VARCHAR(255) NOT NULL UNIQUE,
+    color VARCHAR(255) NOT NULL,
+    type VARCHAR(255) NOT NULL,
+    status VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE styles (
+    id SERIAL PRIMARY KEY,
+    clothe_id INT NOT NULL REFERENCES clothes(id),
+    style_id VARCHAR(255) NOT NULL,
+    category VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- TODO: Update style name in the diagram

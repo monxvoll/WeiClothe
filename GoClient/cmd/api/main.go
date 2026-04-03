@@ -12,6 +12,8 @@ import (
 
 	kafkaAdapter "weicloth/internal/adapters/event_publisher/kafka"
 
+	postgresAdapter "weicloth/internal/adapters/repository/postgres"
+
 	"github.com/joho/godotenv"
 )
 
@@ -42,6 +44,24 @@ func main() {
 
 	producer := kafkaAdapter.NewProducer(kafkaAdapter.DefaultProducerConfig(brokers))
 	defer producer.Close()
+
+	// ── Postgres ──
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s", os.Getenv("DB_HOST"), os.Getenv("DB_PORT"), os.Getenv("DB_USER"), os.Getenv("DB_PASSWORD"), os.Getenv("DB_NAME"), os.Getenv("DB_SSLMODE"))
+	postgres, err := postgresAdapter.NewConnection(context.Background(), dsn)
+	if err != nil {
+		log.Fatalf("Fatal error connecting to Postgres: %v", err)
+	}
+	defer postgres.Close()
+
+	// ── Repositories ──
+	userRepo := postgresAdapter.NewUserRepository(postgres)
+	clotheRepo := postgresAdapter.NewClotheRepository(postgres)
+	styleRepo := postgresAdapter.NewStyleRepository(postgres)
+
+	// TODO: Inject repositories into the core business logic
+	_ = userRepo
+	_ = clotheRepo
+	_ = styleRepo
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

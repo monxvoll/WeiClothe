@@ -21,7 +21,7 @@ func (pgx *UserRepository) IsAliveUser() {
 	fmt.Println("UserRepository is alive")
 }
 
-func (pgx *UserRepository) CreateUser(user *domain.User) error {
+func (pgx *UserRepository) CreateUser(ctx context.Context, user *domain.User) error {
 	query :=
 		`
 	INSERT INTO users (sub_keycloak, first_name, last_name, nickname, email, date_birth, gender)
@@ -29,7 +29,7 @@ func (pgx *UserRepository) CreateUser(user *domain.User) error {
 	RETURNING id
 	`
 	var id string
-	err := pgx.db.QueryRow(context.Background(), query, user.SubKeycloak, user.FirstName, user.LastName, user.Nickname, user.Email, user.DateBirth, user.Gender).Scan(&id)
+	err := pgx.db.QueryRow(ctx, query, user.SubKeycloak, user.FirstName, user.LastName, user.Nickname, user.Email, user.DateBirth, user.Gender).Scan(&id)
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}

@@ -20,7 +20,7 @@ func TestUserRepository_CreateUser(t *testing.T) {
 
 	pool := NewUserRepository(postgres)
 
-	err = pool.CreateUser(&domain.User{
+	err = pool.CreateUser(context.Background(), &domain.User{
 		SubKeycloak: "test2",
 		FirstName:   "Test",
 		LastName:    "Test",

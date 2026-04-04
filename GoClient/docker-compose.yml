@@ -7,11 +7,12 @@ services:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
       JAVA_OPTS_APPEND: "-Xms128m -Xmx256m"
-    command: start-dev
+    command: start-dev --import-realm
     ports:
       - "9090:8080"
     volumes:
       - keycloak_data:/opt/keycloak/data
+      - ./realm-export.json:/opt/keycloak/data/import/realm.json:ro
     mem_limit: 384m
 
   # ── Production Keycloak─
@@ -107,6 +108,18 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+
+  kafka-ui:
+    image: docker.redpanda.com/redpandadata/console:v2.7.2
+    container_name: weiclothe_kafka_ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
 
 
 volumes:

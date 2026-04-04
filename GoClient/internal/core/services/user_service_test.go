@@ -12,7 +12,8 @@ import (
 
 // --- Mock Identity Provider ---
 type MockIdentityProvider struct {
-	ShouldFail bool
+	ShouldFail      bool
+	DeleteWasCalled bool
 }
 
 func (m *MockIdentityProvider) RegisterUser(ctx context.Context, username, email, password, firstName, lastName string) (string, error) {
@@ -31,6 +32,7 @@ func (m *MockIdentityProvider) ValidateToken(ctx context.Context, token string) 
 }
 
 func (m *MockIdentityProvider) DeleteUser(ctx context.Context, uid string) error {
+	m.DeleteWasCalled = true
 	if m.ShouldFail {
 		return errors.New("mock deletion failed")
 	}
@@ -108,5 +110,39 @@ func TestUserService_RegisterUser_HappyPath(t *testing.T) {
 
 	if mockPub.PublishedTopic != "user.created" {
 		t.Errorf("Expected event topic 'user.created', got %s", mockPub.PublishedTopic)
+	}
+}
+
+// Rollback Test
+func TestUserService_RegisterUser_Rollback(t *testing.T) {
+	// 1. Prepare mocks
+	mockIdp := &MockIdentityProvider{ShouldFail: false}
+	mockRepo := &MockUserRepository{ShouldFail: true}
+	mockPub := &MockEventPublisher{}
+
+	// 2. Initialize Service
+	userService := NewUserService(mockIdp, mockRepo, mockPub)
+
+	// 3. Prepare Input
+	input := domain.RegisterUserInput{
+		FirstName: "John",
+		LastName:  "Doe",
+		Nickname:  "johndoe",
+		Email:     "john@doe.com",
+		Password:  "secret",
+		DateBirth: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC),
+		Gender:    "Male",
+	}
+
+	// 4. Execute Service
+	err := userService.RegisterUser(context.Background(), input)
+
+	// 5. Assertions
+	if err == nil {
+		t.Fatalf("Expected an error due to postgres fail, but got nil")
+	}
+
+	if mockIdp.DeleteWasCalled == false {
+		t.Fatalf("Expected IdentityProvider.DeleteUser to be called for rollback, but it was not called")
 	}
 }

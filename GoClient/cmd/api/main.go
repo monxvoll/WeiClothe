@@ -13,6 +13,8 @@ import (
 	kafkaAdapter "weicloth/internal/adapters/event_publisher/kafka"
 
 	postgresAdapter "weicloth/internal/adapters/repository/postgres"
+	"weicloth/internal/core/domain"
+	services "weicloth/internal/core/services"
 
 	"github.com/joho/godotenv"
 )
@@ -58,48 +60,35 @@ func main() {
 	clotheRepo := postgresAdapter.NewClotheRepository(postgres)
 	styleRepo := postgresAdapter.NewStyleRepository(postgres)
 
-	// TODO: Inject repositories into the core business logic
-	_ = userRepo
+	// ── Services ──
+	userService := services.NewUserService(keycloak, userRepo, producer)
+
+	_ = userService
 	_ = clotheRepo
 	_ = styleRepo
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// ── Keycloak: register + login + validate ──
-	testUsername := "test"
+	// Test the Architecture Flow
 	testEmail := os.Getenv("TEST_USER_EMAIL")
 	testPassword := os.Getenv("TEST_USER_PASS")
 
-	registeredUID, err := keycloak.RegisterUser(ctx, testUsername, testEmail, testPassword, "Engineer", "Backend")
+	fmt.Println(" User Creation Flow..")
+	input := domain.RegisterUserInput{
+		FirstName: "Integration",
+		LastName:  "TestUser",
+		Nickname:  "integ_test",
+		Email:     testEmail,
+		Password:  testPassword,
+		DateBirth: time.Date(1995, 5, 20, 0, 0, 0, 0, time.UTC),
+		Gender:    "Male",
+	}
+
+	err = userService.RegisterUser(ctx, input)
 	if err != nil {
-		fmt.Printf("Warning: %v\n", err)
-		fmt.Println("Assuming the user already exists. Skipping to Login...")
-	} else {
-		fmt.Printf("User successfully created in the database.\n")
-		fmt.Printf(" (UID): %s\n", registeredUID)
+		log.Fatalf("Fatal: Flow failed: %v", err)
 	}
 
-	token, err := keycloak.LoginUser(ctx, testEmail, testPassword)
-	if err != nil {
-		log.Fatalf("Fatal login error: %v", err)
-	}
-
-	fmt.Printf("Login successful. Keycloak gave us a JWT Token.\n")
-	fmt.Printf("Token : %s...\n", token[:30])
-
-	validatedUID, err := keycloak.ValidateToken(ctx, token)
-	if err != nil {
-		log.Fatalf("Fatal error validating token: %v", err)
-	}
-
-	fmt.Printf("Token is 100%% valid and active.\n")
-	fmt.Printf("ID extracted from token (Sub): %s\n", validatedUID)
-
-	// ── Kafka: publish test event ──
-	payload := []byte(fmt.Sprintf(`{"uid":"%s","action":"login","ts":%d}`, validatedUID, time.Now().Unix()))
-	if err := producer.Publish(ctx, "user.login", validatedUID, payload); err != nil {
-		log.Fatalf("Failed to publish event to Kafka: %v", err)
-	}
-	fmt.Println("Event published to Kafka [topic=user.login]")
+	fmt.Println("Flow completed successfully! SubKeycloak mapped, Postgres saved, and Kafka event published.")
 }

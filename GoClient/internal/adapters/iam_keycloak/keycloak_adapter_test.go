@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"testing"
 	"strings"
+	"testing"
 	"time"
 )
 
@@ -31,10 +31,10 @@ func TestValidateToken_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// 3. Execute the function 
+	// 3. Execute the function
 	uid, err := adapter.ValidateToken(ctx, "token")
 
-	// 4. Assertions 
+	// 4. Assertions
 	if err != nil {
 		t.Fatalf("Expected success, but got error: %v", err)
 	}
@@ -46,9 +46,9 @@ func TestValidateToken_Success(t *testing.T) {
 }
 
 func TestValidateToken_InvalidToken(t *testing.T) {
-	// 1. Configure the Mock Server 
+	// 1. Configure the Mock Server
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simulate Keycloak rejecting the token 
+		// Simulate Keycloak rejecting the token
 		// Return an HTTP 401 Unauthorized status
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
@@ -63,7 +63,7 @@ func TestValidateToken_InvalidToken(t *testing.T) {
 	// 3. Execute the function with a invalid token
 	uid, err := adapter.ValidateToken(ctx, "invalid_token")
 
-	// 4. Assertions 
+	// 4. Assertions
 	if err == nil {
 		t.Fatalf("Expected an error for an invalid token, but the function returned success")
 	}
@@ -72,7 +72,6 @@ func TestValidateToken_InvalidToken(t *testing.T) {
 		t.Errorf("Expected an empty UID for invalid token, but got: %s", uid)
 	}
 }
-
 
 func TestLoginUser_Success(t *testing.T) {
 	// 1. Configure the Mock Server for Login
@@ -144,5 +143,37 @@ func TestRegisterUser_Success(t *testing.T) {
 	expectedUID := "987f6543-e21b-34c5-b678-1234567890ab"
 	if uid != expectedUID {
 		t.Errorf("Expected UID %s, got %s", expectedUID, uid)
+	}
+}
+
+func TestDeleteUser_Success(t *testing.T) {
+	//1. Configure the mock server
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		//Ask for the admin token
+		if strings.Contains(r.URL.Path, "token") {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintln(w, `{"access_token": "fake_admin_token_123"}`)
+			return
+		}
+
+		//Simulate the response returned by keycloak
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	defer mockServer.Close()
+
+	//2. Instantiate the adapter
+
+	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	//3. Execute Deletion
+	err := adapter.DeleteUser(ctx, "e21b-34c5-b678-1234567890ab")
+
+	//4. Asserts
+	if err != nil {
+		t.Fatalf("Expected success, but got error: %v", err)
 	}
 }

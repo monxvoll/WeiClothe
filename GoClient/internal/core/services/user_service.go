@@ -82,3 +82,34 @@ func (s *UserService) RegisterUser(ctx context.Context, input domain.RegisterUse
 
 	return nil
 }
+
+func (s *UserService) UpdateUser(ctx context.Context, uid string, input domain.UpdateUserInput) error {
+	//1. Map the domain object
+	userRecord := &domain.UpdateUserInput{
+		SubKeycloak: uid,
+		FirstName:   input.FirstName,
+		LastName:    input.LastName,
+		Nickname:    input.Nickname,
+		DateBirth:   input.DateBirth,
+		Gender:      input.Gender,
+	}
+
+	err := s.userRepository.UpdateUser(ctx, userRecord)
+	if err != nil {
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+
+	// 2. Publish the success event to the Broker (Kafka)
+	eventPayload := map[string]string{
+		"uid": userRecord.SubKeycloak,
+	}
+
+	payloadBytes, _ := json.Marshal(eventPayload)
+
+	err = s.eventPublisher.Publish(ctx, "user.updated", userRecord.SubKeycloak, payloadBytes)
+	if err != nil {
+		fmt.Printf("Warning: user was updated but event publication failed: %v", err)
+	}
+
+	return nil
+}

@@ -53,6 +53,10 @@ func (m *MockUserRepository) CreateUser(ctx context.Context, user *domain.User) 
 	return nil
 }
 
+func (m *MockUserRepository) UpdateUser(ctx context.Context, user *domain.UpdateUserInput) error {
+	return nil //Simulate the update
+}
+
 // --- Mock Event Publisher ---
 type MockEventPublisher struct {
 	PublishedTopic string
@@ -145,4 +149,33 @@ func TestUserService_RegisterUser_Rollback(t *testing.T) {
 	if mockIdp.DeleteWasCalled == false {
 		t.Fatalf("Expected IdentityProvider.DeleteUser to be called for rollback, but it was not called")
 	}
+}
+
+// Update User Test
+func TestUserService_UpdateUser_HappyPath(t *testing.T) {
+	// 1. Prepare mocks
+	mockIdp := &MockIdentityProvider{ShouldFail: false}
+	mockRepo := &MockUserRepository{ShouldFail: false}
+	mockPub := &MockEventPublisher{}
+
+	// 2. Initialize Service
+	userService := NewUserService(mockIdp, mockRepo, mockPub)
+
+	// 3. Prepare Input
+	input := domain.UpdateUserInput{
+		FirstName: "John",
+		LastName:  "Doe",
+		Nickname:  "johndoe",
+		DateBirth: time.Date(1990, 1, 1, 0, 0, 0, 0, time.UTC),
+		Gender:    "Male",
+	}
+
+	// 4. Execute Service
+	err := userService.UpdateUser(context.Background(), "mock-uuid-keycloak", input)
+
+	// 5. Assertions
+	if err != nil {
+		t.Fatalf("Expected strictly no error on happy path, got: %v", err)
+	}
+
 }

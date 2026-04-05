@@ -11,5 +11,5 @@ type UserRepository interface {
 	CreateUser(ctx context.Context, user *domain.User) error
 
 	// Updates basic user information
-	UpdateUser(ctx context.Context, user *domain.User) error
+	UpdateUser(ctx context.Context, user *domain.UpdateUserInput) error
 }

@@ -37,7 +37,7 @@ func (pgx *UserRepository) CreateUser(ctx context.Context, user *domain.User) er
 	return nil
 }
 
-func (pgx *UserRepository) UpdateUser(ctx context.Context, user *domain.User) error {
+func (pgx *UserRepository) UpdateUser(ctx context.Context, user *domain.UpdateUserInput) error {
 	query :=
 		`
 		UPDATE users SET first_name = $1, last_name = $2, nickname = $3, date_birth = $4, gender = $5, updated_at = CURRENT_TIMESTAMP 

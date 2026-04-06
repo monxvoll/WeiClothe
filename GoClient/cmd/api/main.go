@@ -62,9 +62,10 @@ func main() {
 
 	// ── Services ──
 	userService := services.NewUserService(keycloak, userRepo, producer)
+	clotheService := services.NewClotheService(clotheRepo, producer)
 
 	_ = userService
-	_ = clotheRepo
+	_ = clotheService
 	_ = styleRepo
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -78,7 +79,7 @@ func main() {
 	input := domain.RegisterUserInput{
 		FirstName: "Integration",
 		LastName:  "TestUser",
-		Nickname:  "integ_test",
+		Nickname:  "integ_test1",
 		Email:     testEmail,
 		Password:  testPassword,
 		DateBirth: time.Date(1995, 5, 20, 0, 0, 0, 0, time.UTC),
@@ -121,5 +122,19 @@ func main() {
 		log.Fatalf("Fatal: Update failed: %v", updateErr)
 	}
 	fmt.Println("SUCCESS: The user has been updated in Postgres and announced in Kafka!")
+
+	// Clothes flow
+	clothe := domain.Garment{
+		UserID:      uid,
+		ImageURL:    "s3://bucket/img.jpg",
+		GarmentType: "shirt",
+		Source:      "ai",
+		Status:      "queued",
+	}
+	err = clotheService.RegisterClothe(ctx, &clothe)
+	if err != nil {
+		log.Fatalf("Fatal: Register clothe failed: %v", err)
+	}
+	fmt.Println("SUCCESS: The clothe has been registered in Postgres and announced in Kafka!")
 
 }

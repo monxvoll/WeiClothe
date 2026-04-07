@@ -15,7 +15,7 @@ CREATE TABLE users (
 
 CREATE TABLE clothes (
     id SERIAL PRIMARY KEY,
-    user_id INT NOT NULL REFERENCES users(sub_keycloak),
+    user_id VARCHAR(255) NOT NULL REFERENCES users(sub_keycloak),
     image_url TEXT NOT NULL UNIQUE,
     image_width INT,
     image_height INT,

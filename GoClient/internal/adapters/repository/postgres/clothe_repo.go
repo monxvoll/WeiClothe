@@ -28,11 +28,6 @@ func (pgx *ClotheRepository) IsAliveClothe() {
 }
 
 func (pgx *ClotheRepository) CreateClothe(ctx context.Context, garment *domain.Garment) error {
-	userID, err := strconv.Atoi(garment.UserID)
-	if err != nil {
-		return fmt.Errorf("invalid user id: %w", err)
-	}
-
 	query := `
 		INSERT INTO clothes (
 			user_id, image_url, garment_type, name, classification_id,
@@ -58,10 +53,10 @@ func (pgx *ClotheRepository) CreateClothe(ctx context.Context, garment *domain.G
 	}
 
 	var id int
-	err = pgx.db.QueryRow(
+	err := pgx.db.QueryRow(
 		ctx,
 		query,
-		userID,
+		garment.UserID,
 		garment.ImageURL,
 		garment.GarmentType,
 		garment.Name,
@@ -209,7 +204,6 @@ func (pgx *ClotheRepository) GetClotheByID(ctx context.Context, garmentID string
 
 	garment := &domain.Garment{}
 	var dbID int
-	var dbUserID int
 	var name sql.NullString
 	var classificationID sql.NullString
 	var category sql.NullString
@@ -229,7 +223,7 @@ func (pgx *ClotheRepository) GetClotheByID(ctx context.Context, garmentID string
 
 	err = pgx.db.QueryRow(ctx, query, id).Scan(
 		&dbID,
-		&dbUserID,
+		&garment.UserID,
 		&garment.ImageURL,
 		&garment.GarmentType,
 		&name,
@@ -256,7 +250,6 @@ func (pgx *ClotheRepository) GetClotheByID(ctx context.Context, garmentID string
 	}
 
 	garment.ID = strconv.Itoa(dbID)
-	garment.UserID = strconv.Itoa(dbUserID)
 	if name.Valid {
 		garment.Name = name.String
 	}
@@ -313,11 +306,6 @@ func (pgx *ClotheRepository) GetClotheByID(ctx context.Context, garmentID string
 }
 
 func (pgx *ClotheRepository) ListClothesByUser(ctx context.Context, userID string) ([]domain.Garment, error) {
-	id, err := strconv.Atoi(userID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid user id: %w", err)
-	}
-
 	query := `
 		SELECT
 			id, user_id, image_url, garment_type, name, classification_id,
@@ -329,7 +317,7 @@ func (pgx *ClotheRepository) ListClothesByUser(ctx context.Context, userID strin
 		ORDER BY created_at DESC
 	`
 
-	rows, err := pgx.db.Query(ctx, query, id)
+	rows, err := pgx.db.Query(ctx, query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list clothes by user: %w", err)
 	}
@@ -339,7 +327,6 @@ func (pgx *ClotheRepository) ListClothesByUser(ctx context.Context, userID strin
 	for rows.Next() {
 		var garment domain.Garment
 		var dbID int
-		var dbUserID int
 		var name sql.NullString
 		var classificationID sql.NullString
 		var category sql.NullString
@@ -359,7 +346,7 @@ func (pgx *ClotheRepository) ListClothesByUser(ctx context.Context, userID strin
 
 		if err := rows.Scan(
 			&dbID,
-			&dbUserID,
+			&garment.UserID,
 			&garment.ImageURL,
 			&garment.GarmentType,
 			&name,
@@ -385,7 +372,6 @@ func (pgx *ClotheRepository) ListClothesByUser(ctx context.Context, userID strin
 		}
 
 		garment.ID = strconv.Itoa(dbID)
-		garment.UserID = strconv.Itoa(dbUserID)
 		if name.Valid {
 			garment.Name = name.String
 		}

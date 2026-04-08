@@ -6,16 +6,17 @@ import (
 	"log"
 	"os"
 	"strings"
-	"time"
 
 	keycloakAdapter "weicloth/internal/adapters/iam_keycloak"
+
+	"weicloth/internal/adapters/handler"
 
 	kafkaAdapter "weicloth/internal/adapters/event_publisher/kafka"
 
 	postgresAdapter "weicloth/internal/adapters/repository/postgres"
-	"weicloth/internal/core/domain"
 	services "weicloth/internal/core/services"
 
+	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
@@ -64,77 +65,85 @@ func main() {
 	userService := services.NewUserService(keycloak, userRepo, producer)
 	clotheService := services.NewClotheService(clotheRepo, producer)
 
-	_ = userService
-	_ = clotheService
 	_ = styleRepo
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	/*
+		Integration tests in-process (uncomment to exercise Keycloak, Postgres, Kafka flows).
+		Comment out the HTTP block below if you run this.
 
-	// Test the Architecture Flow
-	testEmail := os.Getenv("TEST_USER_EMAIL")
-	testPassword := os.Getenv("TEST_USER_PASS")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 
-	fmt.Println(" User Creation Flow..")
-	input := domain.RegisterUserInput{
-		FirstName: "Integration",
-		LastName:  "TestUser",
-		Nickname:  "integ_test1",
-		Email:     testEmail,
-		Password:  testPassword,
-		DateBirth: time.Date(1995, 5, 20, 0, 0, 0, 0, time.UTC),
-		Gender:    "Male",
+		testEmail := os.Getenv("TEST_USER_EMAIL")
+		testPassword := os.Getenv("TEST_USER_PASS")
+
+		fmt.Println(" User Creation Flow..")
+		input := domain.RegisterUserInput{
+			FirstName: "Integration",
+			LastName:  "TestUser",
+			Nickname:  "integ_test1",
+			Email:     testEmail,
+			Password:  testPassword,
+			DateBirth: time.Date(1995, 5, 20, 0, 0, 0, 0, time.UTC),
+			Gender:    "Male",
+		}
+
+		err = userService.RegisterUser(ctx, input)
+		if err != nil {
+			log.Fatalf("Fatal: Flow failed: %v", err)
+		}
+
+		fmt.Println("Flow completed successfully! SubKeycloak mapped, Postgres saved, and Kafka event published.")
+
+		token, loginErr := keycloak.LoginUser(ctx, testEmail, testPassword)
+		if loginErr != nil {
+			log.Fatalf("Fatal: Could not login to perform update: %v", loginErr)
+		}
+
+		uid, valErr := keycloak.ValidateToken(ctx, token)
+		if valErr != nil {
+			log.Fatalf("Fatal: Could not decode Token: %v", valErr)
+		}
+
+		fmt.Printf("UID successfully intercepted: %s\n", uid)
+		updateInput := domain.UpdateUserInput{
+			FirstName: "My New Name",
+			LastName:  "My New Lastname",
+			Nickname:  "superHacker777",
+			DateBirth: time.Date(1999, 9, 9, 0, 0, 0, 0, time.UTC),
+			Gender:    "Apache Helicopter",
+		}
+
+		updateErr := userService.UpdateUser(ctx, uid, updateInput)
+		if updateErr != nil {
+			log.Fatalf("Fatal: Update failed: %v", updateErr)
+		}
+		fmt.Println("SUCCESS: The user has been updated in Postgres and announced in Kafka!")
+
+		clothe := domain.Garment{
+			UserID:      uid,
+			ImageURL:    "s3://bucket/img.jpg",
+			GarmentType: "shirt",
+			Source:      "ai",
+			Status:      "queued",
+		}
+		err = clotheService.RegisterClothe(ctx, &clothe)
+		if err != nil {
+			log.Fatalf("Fatal: Register clothe failed: %v", err)
+		}
+		fmt.Println("SUCCESS: The clothe has been registered in Postgres and announced in Kafka!")
+	*/
+
+	httpHandler := handler.NewHTTPHandler(userService, clotheService)
+	r := gin.Default()
+	httpHandler.RegisterRoutes(r)
+
+	addr := os.Getenv("HTTP_ADDR")
+	if addr == "" {
+		addr = ":8080"
 	}
-
-	err = userService.RegisterUser(ctx, input)
-	if err != nil {
-		log.Fatalf("Fatal: Flow failed: %v", err)
+	log.Printf("HTTP listening on %s", addr)
+	if err := r.Run(addr); err != nil {
+		log.Fatalf("server: %v", err)
 	}
-
-	fmt.Println("Flow completed successfully! SubKeycloak mapped, Postgres saved, and Kafka event published.")
-
-	// Update User Flow
-	// 1. Log in reusing the original 'keycloak' variable
-	token, loginErr := keycloak.LoginUser(ctx, testEmail, testPassword)
-	if loginErr != nil {
-		log.Fatalf("Fatal: Could not login to perform update: %v", loginErr)
-	}
-
-	// 2. Extract the secret UID from the Token
-	uid, valErr := keycloak.ValidateToken(ctx, token)
-	if valErr != nil {
-		log.Fatalf("Fatal: Could not decode Token: %v", valErr)
-	}
-
-	fmt.Printf("UID successfully intercepted: %s\n", uid)
-	// 3. Prepare the mutated data
-	updateInput := domain.UpdateUserInput{
-		FirstName: "My New Name",
-		LastName:  "My New Lastname",
-		Nickname:  "superHacker777",
-		DateBirth: time.Date(1999, 9, 9, 0, 0, 0, 0, time.UTC),
-		Gender:    "Apache Helicopter",
-	}
-
-	// 4. Trigger the update to the Orchestrator
-	updateErr := userService.UpdateUser(ctx, uid, updateInput)
-	if updateErr != nil {
-		log.Fatalf("Fatal: Update failed: %v", updateErr)
-	}
-	fmt.Println("SUCCESS: The user has been updated in Postgres and announced in Kafka!")
-
-	// Clothes flow
-	clothe := domain.Garment{
-		UserID:      uid,
-		ImageURL:    "s3://bucket/img.jpg",
-		GarmentType: "shirt",
-		Source:      "ai",
-		Status:      "queued",
-	}
-	err = clotheService.RegisterClothe(ctx, &clothe)
-	if err != nil {
-		log.Fatalf("Fatal: Register clothe failed: %v", err)
-	}
-	fmt.Println("SUCCESS: The clothe has been registered in Postgres and announced in Kafka!")
-
 }

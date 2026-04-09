@@ -136,7 +136,7 @@ func main() {
 
 	httpHandler := handler.NewHTTPHandler(userService, clotheService)
 	r := gin.Default()
-	httpHandler.RegisterRoutes(r)
+	httpHandler.RegisterRoutes(r, keycloak)
 
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {

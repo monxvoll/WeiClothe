@@ -1,5 +1,5 @@
 services:
-  
+
   keycloak:
     image: quay.io/keycloak/keycloak:24.0.1
     container_name: weiclothe_iam
@@ -33,7 +33,7 @@ services:
   #   volumes:
   #     - keycloak_data:/opt/keycloak/data
 
-  
+
   kafka:
     image: docker.redpanda.com/redpandadata/redpanda:v24.3.1
     container_name: weiclothe_kafka
@@ -51,7 +51,7 @@ services:
       - kafka_data:/var/lib/redpanda/data
     mem_limit: 384m
     healthcheck:
-      test: ["CMD", "rpk", "cluster", "health"]
+      test: [ "CMD", "rpk", "cluster", "health" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -103,12 +103,11 @@ services:
     mem_limit: 256m
     # TODO: Add production healthcheck mem limit 512m
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}" ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
-
 
   kafka-ui:
     image: docker.redpanda.com/redpandadata/console:v2.7.2
@@ -121,6 +120,34 @@ services:
       kafka:
         condition: service_healthy
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: weiclothe_api
+    ports:
+      - "8000:8080" # Exposed externally as 8000 to not conflict with local kafka-ui
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_SSLMODE=disable
+      - KAFKA_BROKERS=kafka:9092
+      - KEYCLOAK_BASE_URL=http://keycloak:8080
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-weiclothe}
+      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-go-api}
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
+      - HTTP_ADDR=:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      # Keycloak doesn't have a healthcheck in this compose file so we use started
+      keycloak:
+        condition: service_started
 
 volumes:
   keycloak_data:

@@ -3,6 +3,7 @@ package handler
 import (
 	"weicloth/internal/adapters/handler/clothe"
 	"weicloth/internal/adapters/handler/user"
+	"weicloth/internal/core/ports"
 	"weicloth/internal/core/services"
 
 	"github.com/gin-gonic/gin"
@@ -20,8 +21,8 @@ func NewHTTPHandler(userService *services.UserService, clotheService *services.C
 	}
 }
 
-func (h *HTTPHandler) RegisterRoutes(r *gin.Engine) {
+func (h *HTTPHandler) RegisterRoutes(r *gin.Engine, idp ports.IdentityProvider) {
 	v1 := r.Group("/wei")
 	user.RegisterRoutes(v1.Group("/users"), h.user)
-	clothe.RegisterRoutes(v1.Group("/clothes"), h.clothe)
+	clothe.RegisterRoutes(v1.Group("/clothes"), h.clothe, idp)
 }

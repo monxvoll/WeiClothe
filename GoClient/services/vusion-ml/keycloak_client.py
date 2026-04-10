@@ -47,7 +47,11 @@ class KeycloakVerifier:
                     discovery.raise_for_status()
                     openid = discovery.json()
                     self.issuer = openid["issuer"]
-                    self._jwk_client = PyJWKClient(openid["jwks_uri"], cache_jwk_for=300)
+                    self._jwk_client = PyJWKClient(
+                        openid["jwks_uri"],
+                        cache_keys=True,
+                        lifespan=300,
+                    )
                     logger.info("Keycloak OpenID discovery OK (%s)", self._discovery_url)
                     return
                 except Exception as exc:

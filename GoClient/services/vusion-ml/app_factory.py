@@ -1,3 +1,4 @@
+import atexit
 import logging
 import os
 from typing import Any
@@ -19,6 +20,10 @@ def create_app() -> Flask:
     app.config["middleware"] = middleware
     app.register_blueprint(ai_bp)
 
+    # Cerrar Kafka al terminar el proceso. NO usar teardown_appcontext: con Gunicorn
+    # eso se ejecuta tras cada request y deja el producer cerrado.
+    atexit.register(middleware.kafka.close)
+
     @app.get("/readyz")
     def ready() -> Any:
         try:
@@ -35,9 +40,5 @@ def create_app() -> Flask:
     if config.strict_startup:
         middleware.readiness()
         app.logger.info("Middleware startup checks passed")
-
-    @app.teardown_appcontext
-    def _shutdown(_exc: BaseException | None) -> None:
-        middleware.kafka.close()
 
     return app

@@ -10,9 +10,8 @@ from config import ServiceConfig
 class KafkaGateway:
     """Thin producer wrapper over the same Redpanda/Kafka broker the Go API uses.
 
-    Connects to the EXTERNAL listener (default ``localhost:9093``) defined in
-    docker-compose. The ``KAFKA_BROKERS`` env var must match the value used by
-    the Go service.
+    In Docker Compose use the internal listener, e.g. ``kafka:9092`` (same as
+    the Go API). From the host only, use ``localhost:9093`` (EXTERNAL listener).
     """
 
     def __init__(self, config: ServiceConfig) -> None:
@@ -22,7 +21,7 @@ class KafkaGateway:
         self._admin = AdminClient(kafka_conf)
 
     def healthcheck(self) -> None:
-        self._admin.list_topics(timeout=5)
+        self._admin.list_topics(timeout=15)
 
     def publish_analysis_request(self, payload: dict[str, Any], user_sub: str | None) -> None:
         key = (user_sub or "anonymous").encode("utf-8")

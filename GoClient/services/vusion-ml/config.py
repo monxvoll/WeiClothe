@@ -17,6 +17,8 @@ class ServiceConfig:
     keycloak_client_secret: str
     strict_startup: bool
     request_timeout_seconds: float
+    keycloak_bootstrap_attempts: int
+    keycloak_bootstrap_delay_seconds: float
 
     @classmethod
     def from_env(cls) -> "ServiceConfig":
@@ -39,5 +41,7 @@ class ServiceConfig:
             keycloak_client_id=keycloak_client_id,
             keycloak_client_secret=keycloak_client_secret,
             strict_startup=os.getenv("MIDDLEWARE_STRICT_STARTUP", "true").strip().lower() == "true",
-            request_timeout_seconds=float(os.getenv("MIDDLEWARE_HTTP_TIMEOUT_SECONDS", "3.0")),
+            request_timeout_seconds=float(os.getenv("MIDDLEWARE_HTTP_TIMEOUT_SECONDS", "10")),
+            keycloak_bootstrap_attempts=int(os.getenv("KEYCLOAK_BOOTSTRAP_ATTEMPTS", "40")),
+            keycloak_bootstrap_delay_seconds=float(os.getenv("KEYCLOAK_BOOTSTRAP_DELAY_SEC", "3")),
         )

@@ -149,6 +149,41 @@ services:
       keycloak:
         condition: service_started
 
+  # Python ML / análisis (Flask + Gunicorn). Misma red que Kafka/Keycloak que la API Go.
+  vusion-ml:
+    build:
+      context: ./services/vusion-ml
+      dockerfile: Dockerfile
+    container_name: weiclothe_vusion_ml
+    ports:
+      - "5000:5000"
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      # Misma URL interna que la API. Si los JWT fallan en EC2 (issuer distinto), define
+      # VISION_ML_KEYCLOAK_BASE_URL=http://<IP-pública-EC2>:9090 en .env (y abre el puerto).
+      KEYCLOAK_BASE_URL: ${VISION_ML_KEYCLOAK_BASE_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-weiclothe}
+      KEYCLOAK_CLIENT_ID: ${VISION_ML_CLIENT_ID:-vision-ml}
+      KEYCLOAK_CLIENT_SECRET: ${VISION_ML_CLIENT_SECRET:-V1s10nMlS3cr3tK3y2026xYz}
+      KAFKA_TOPIC_ANALYSIS: ${KAFKA_TOPIC_ANALYSIS:-vusion.analysis.request}
+      MIDDLEWARE_STRICT_STARTUP: ${MIDDLEWARE_STRICT_STARTUP:-true}
+      MIDDLEWARE_HTTP_TIMEOUT_SECONDS: ${MIDDLEWARE_HTTP_TIMEOUT_SECONDS:-10}
+      KEYCLOAK_BOOTSTRAP_ATTEMPTS: ${KEYCLOAK_BOOTSTRAP_ATTEMPTS:-40}
+      KEYCLOAK_BOOTSTRAP_DELAY_SEC: ${KEYCLOAK_BOOTSTRAP_DELAY_SEC:-3}
+      FLASK_DEBUG: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=5)\"" ]
+      interval: 15s
+      timeout: 8s
+      retries: 6
+      start_period: 150s
+
 volumes:
   keycloak_data:
   kafka_data:

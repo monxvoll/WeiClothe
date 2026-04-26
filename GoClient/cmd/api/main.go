@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/gin-contrib/cors"
+
 	keycloakAdapter "weicloth/internal/adapters/iam_keycloak"
 
 	"weicloth/internal/adapters/handler"
@@ -136,6 +138,14 @@ func main() {
 
 	httpHandler := handler.NewHTTPHandler(userService, clotheService)
 	r := gin.Default()
+
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:4200"}, // La URL exacta de tu Angular
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+	}))
 	httpHandler.RegisterRoutes(r, keycloak)
 
 	addr := os.Getenv("HTTP_ADDR")

@@ -16,6 +16,8 @@ import (
 	kafkaAdapter "weicloth/internal/adapters/event_publisher/kafka"
 
 	postgresAdapter "weicloth/internal/adapters/repository/postgres"
+	storages3 "weicloth/internal/adapters/storage/s3"
+	"weicloth/internal/core/ports"
 	services "weicloth/internal/core/services"
 
 	"github.com/gin-gonic/gin"
@@ -65,7 +67,34 @@ func main() {
 
 	// ── Services ──
 	userService := services.NewUserService(keycloak, userRepo, producer)
-	clotheService := services.NewClotheService(clotheRepo, producer)
+	rawAnalysis, hasAnalysisEnv := os.LookupEnv("KAFKA_TOPIC_ANALYSIS")
+	analysisTopic := strings.TrimSpace(rawAnalysis)
+	if !hasAnalysisEnv {
+		analysisTopic = "vusion.analysis.request"
+	}
+
+	ctxBoot := context.Background()
+	s3Bucket := strings.TrimSpace(os.Getenv("S3_BUCKET"))
+	var storage ports.StorageUploader
+	if s3Bucket != "" {
+		region := strings.TrimSpace(os.Getenv("AWS_REGION"))
+		if region == "" {
+			region = "us-east-1"
+		}
+		endpoint := strings.TrimSpace(os.Getenv("S3_ENDPOINT_URL"))
+		ak := strings.TrimSpace(os.Getenv("AWS_ACCESS_KEY_ID"))
+		sk := strings.TrimSpace(os.Getenv("AWS_SECRET_ACCESS_KEY"))
+		u, err := storages3.NewUploader(ctxBoot, region, s3Bucket, endpoint, ak, sk)
+		if err != nil {
+			log.Fatalf("Fatal: S3 uploader: %v", err)
+		}
+		storage = u
+	}
+	if analysisTopic != "" && storage == nil {
+		log.Fatal("Fatal: S3_BUCKET is required when garment analysis is enabled (set KAFKA_TOPIC_ANALYSIS empty to disable publishing)")
+	}
+
+	clotheService := services.NewClotheService(clotheRepo, producer, analysisTopic, storage)
 
 	_ = styleRepo
 

@@ -1,52 +1,53 @@
 # vision-ml
 
-Servicio Flask de analisis de imagen con cliente Keycloak propio (`vision-ml`) y productor Kafka al broker compartido.
+Flask service with Keycloak JWT (`vision-ml`), Kafka producer (legacy `/analizar`), and **Kafka consumer** for garment analysis: download image → YOLO segmentation + CLIP → **S3/MinIO** upload → **PostgreSQL/Aurora** (`clothes`, `clothe_detections` per `GoClient/db/init.sql`).
 
-## Estructura
+## Structure
 
-- `ai_service.py`: entrypoint.
-- `app_factory.py`: factory Flask, endpoints `/healthz` y `/readyz`.
-- `config.py`: carga y validacion de variables de entorno.
-- `keycloak_client.py`: verificacion JWT via JWKS con audience `vision-ml`.
-- `kafka_gateway.py`: productor Kafka hacia el broker compartido.
-- `middleware.py`: composicion de clientes externos.
-- `routes.py`: rutas HTTP protegidas y logica mock.
+- `ai_service.py`: entrypoint (Gunicorn loads `ai_service:app`).
+- `app_factory.py`: Flask factory; `/healthz`, `/readyz`; starts **analysis consumer thread** when `ENABLE_ANALYSIS_CONSUMER=true`.
+- `config.py`: env validation (Kafka, Keycloak, DB, S3).
+- `kafka_consumer.py`: consumes `KAFKA_TOPIC_ANALYSIS` (JSON `{ garment_id, staging_key, user_id, attempt? }`); after 3 failures publishes to `KAFKA_TOPIC_ANALYSIS_DLQ`.
+- `ml_pipeline.py`: Ultralytics YOLO-seg + CLIP + PNG compression (≥80% resolution).
+- `db_gateway.py`: psycopg2 pool → UPDATE `clothes`, INSERT `clothe_detections`.
+- `s3_gateway.py`: boto3 (AWS S3 or MinIO via `S3_ENDPOINT_URL`).
+- `kafka_gateway.py`: Kafka producer (existing HTTP routes).
+- `middleware.py`: readiness Keycloak + Kafka + optional Postgres + S3.
+- `routes.py`: protected routes (mock/demo `/analizar`).
 
-## Variables de entorno
+## Object storage lifecycle (raw staging)
 
-```bash
-# Requeridas
-KAFKA_BROKERS=localhost:9093
-KEYCLOAK_BASE_URL=http://localhost:9090
-KEYCLOAK_REALM=weiclothe
-KEYCLOAK_CLIENT_ID=vision-ml
-KEYCLOAK_CLIENT_SECRET=V1s10nMlS3cr3tK3y2026xYz
+- Raw uploads use keys `raw/{user_id}/{garment_id}/original.*`. The worker deletes the staging object after a successful DB commit.
+- **Safety net:** configure bucket lifecycle to expire `raw/` after 24–48h (crashed workers). Examples:
+  - **AWS S3:** Lifecycle rule — prefix `raw/`, expiration 1 day.
+  - **MinIO:** `mc ilm add ... --prefix "raw/" --expire-days 1` (see MinIO ILM docs).
 
-# Opcionales
-KAFKA_TOPIC_ANALYSIS=vusion.analysis.request
-MIDDLEWARE_STRICT_STARTUP=true
-MIDDLEWARE_HTTP_TIMEOUT_SECONDS=3.0
-LOG_LEVEL=INFO
-FLASK_DEBUG=false
-```
+## Environment
+
+See `.env-example` for full list. Minimum when consumer enabled:
+
+- Kafka + Keycloak (as before).
+- `DB_*`, `S3_BUCKET`; optional `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (omit on EC2 with IAM).
+- `S3_ENDPOINT_URL` empty for real AWS; `http://minio:9000` for Compose MinIO.
+- `S3_PUBLIC_BASE_URL` for browser-visible URLs (path-style MinIO dev URL).
 
 ## Endpoints
 
-| Metodo | Ruta | Auth | Descripcion |
+| Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | GET | `/healthz` | No | Liveness |
-| GET | `/readyz` | No | Readiness (Keycloak + Kafka) |
-| POST | `/analizar` | Bearer JWT | Analisis mock + evento Kafka |
+| GET | `/readyz` | No | Keycloak + Kafka + Postgres + S3 (if consumer on) |
+| POST | `/analizar` | Bearer JWT | Legacy mock + Kafka publish |
 
-## Ejecucion
+## Run locally
 
 ```bash
 cd GoClient/services/vusion-ml
+# Dockerfile installs CPU PyTorch first; then pip install -r requirements.txt
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
-cp .env-example .env   # ajustar valores si es necesario
+cp .env-example .env   # edit DB, MinIO/S3
 python ai_service.py
 ```
 
-En AWS, las variables se inyectan via ECS Task Definition, SSM Parameter Store o Secrets Manager. El `.env` solo es para desarrollo local.
-
-Requiere Keycloak y Kafka corriendo (ver README raiz).
+Production: inject env via ECS task definition, SSM, or Secrets Manager; Go API sends multipart `POST /clothes`, stages raw objects under `raw/` on S3, then publishes `{ garment_id, staging_key, user_id }` to `KAFKA_TOPIC_ANALYSIS`.

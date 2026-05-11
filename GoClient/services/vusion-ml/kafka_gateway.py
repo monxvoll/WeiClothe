@@ -33,5 +33,15 @@ class KafkaGateway:
         )
         self._producer.poll(0)
 
+    def publish_json(self, topic: str, key: str | None, payload: dict[str, Any]) -> None:
+        """Produce a JSON message to an arbitrary topic (retries / DLQ)."""
+        kb = (key or "").encode("utf-8")
+        self._producer.produce(
+            topic=topic,
+            key=kb,
+            value=json.dumps(payload).encode("utf-8"),
+        )
+        self._producer.poll(0)
+
     def close(self) -> None:
         self._producer.flush(5)

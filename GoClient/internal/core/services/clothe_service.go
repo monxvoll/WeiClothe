@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"weicloth/internal/core/domain"
@@ -16,6 +17,8 @@ const clotheAuditTopic = "audit.clothes.v1"
 type ClotheService struct {
 	clotheRepository ports.ClotheRepository
 	eventPublisher   ports.EventPublisher
+	analysisTopic    string // e.g. vusion.analysis.request; empty disables ML queue publish
+	storage          ports.StorageUploader
 }
 
 type clotheAuditEvent struct {
@@ -30,14 +33,38 @@ type clotheAuditEvent struct {
 	ModelVersion string `json:"model_version,omitempty"`
 }
 
-func NewClotheService(repo ports.ClotheRepository, events ports.EventPublisher) *ClotheService {
+// clotheAnalysisRequestPayload is consumed by vusion-ml (Kafka topic vusion.analysis.request).
+type clotheAnalysisRequestPayload struct {
+	GarmentID  int    `json:"garment_id"`
+	StagingKey string `json:"staging_key"`
+	UserID     string `json:"user_id"`
+	Attempt    int    `json:"attempt,omitempty"`
+}
+
+func NewClotheService(
+	repo ports.ClotheRepository,
+	events ports.EventPublisher,
+	analysisTopic string,
+	storage ports.StorageUploader,
+) *ClotheService {
 	return &ClotheService{
 		clotheRepository: repo,
 		eventPublisher:   events,
+		analysisTopic:    analysisTopic,
+		storage:          storage,
 	}
 }
 
-func (s *ClotheService) RegisterClothe(ctx context.Context, garment *domain.Garment) error {
+// RegisterClothe persists the garment, stages raw bytes to object storage when analysis is enabled, then publishes Kafka jobs.
+func (s *ClotheService) RegisterClothe(
+	ctx context.Context,
+	garment *domain.Garment,
+	rawImage []byte,
+	rawExt string,
+	imageContentType string,
+) error {
+	garment.ImageURL = ""
+
 	if err := s.clotheRepository.CreateClothe(ctx, garment); err != nil {
 		return fmt.Errorf("failed to create clothe: %w", err)
 	}
@@ -51,6 +78,17 @@ func (s *ClotheService) RegisterClothe(ctx context.Context, garment *domain.Garm
 		OccurredAt: time.Now().UTC().Format(time.RFC3339Nano),
 		Source:     garment.Source,
 	})
+
+	if s.analysisTopic != "" && s.storage != nil && len(rawImage) > 0 {
+		key := fmt.Sprintf("raw/%s/%s/original%s", garment.UserID, garment.ID, rawExt)
+		if err := s.storage.StageRaw(ctx, key, rawImage, imageContentType); err != nil {
+			if uerr := s.clotheRepository.UpdateClotheStatus(ctx, garment.ID, "failed"); uerr != nil {
+				fmt.Printf("Warning: could not mark garment %s failed after staging error: %v\n", garment.ID, uerr)
+			}
+			return fmt.Errorf("stage raw image: %w", err)
+		}
+		s.publishAnalysisRequest(ctx, garment, key)
+	}
 
 	return nil
 }
@@ -126,5 +164,33 @@ func (s *ClotheService) publishAuditEvent(ctx context.Context, event clotheAudit
 	if err := s.eventPublisher.Publish(publishCtx, clotheAuditTopic, key, payload); err != nil {
 		// Best effort: business operation is already completed.
 		fmt.Printf("Warning: clothe audit publication failed: %v\n", err)
+	}
+}
+
+func (s *ClotheService) publishAnalysisRequest(ctx context.Context, garment *domain.Garment, stagingKey string) {
+	if s.analysisTopic == "" {
+		return
+	}
+	id, err := strconv.Atoi(garment.ID)
+	if err != nil {
+		fmt.Printf("Warning: garment id not numeric, skip analysis publish: %v\n", err)
+		return
+	}
+	body := clotheAnalysisRequestPayload{
+		GarmentID:  id,
+		StagingKey: stagingKey,
+		UserID:     garment.UserID,
+		Attempt:    0,
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		fmt.Printf("Warning: marshal analysis request: %v\n", err)
+		return
+	}
+	publishCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	key := garment.ID
+	if err := s.eventPublisher.Publish(publishCtx, s.analysisTopic, key, payload); err != nil {
+		fmt.Printf("Warning: analysis request publication failed: %v\n", err)
 	}
 }

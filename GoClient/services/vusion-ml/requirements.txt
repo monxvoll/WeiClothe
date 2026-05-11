@@ -5,3 +5,10 @@ requests
 PyJWT[crypto]
 confluent-kafka
 python-dotenv
+psycopg2-binary
+boto3
+ultralytics
+transformers
+pillow
+opencv-python-headless
+numpy

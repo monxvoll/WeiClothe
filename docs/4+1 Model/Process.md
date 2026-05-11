@@ -82,44 +82,33 @@ sequenceDiagram
 sequenceDiagram
     autonumber
     participant C as Angular / Client
-    participant G as GO Backend
+    participant G as Go API
     participant KC as Keycloak
-    participant Q as Kafka Queue
-    participant W as Worker / Consumer
-    participant ML as Python ML Service
-    participant A as Aurora DB
-    participant S3 as AWS S3
+    participant DB as Postgres DB
+    participant S3 as S3 / MinIO
+    participant K as Kafka
+    participant V as "vusion-ml (consumer + ML)"
 
-    %% ── Auth & Upload ──
-    C->>G: POST /upload (image + metadata + JWT)
+    C->>G: POST /clothes multipart (image + garment_type + JWT)
     G->>KC: Validate JWT
     KC-->>G: Auth status
 
-    alt JWT Invalid
+    alt JWT invalid
         G-->>C: 401 Unauthorized
-    else JWT Valid
+    else JWT valid
+        G->>DB: INSERT garment row (image_url empty initially)
+        G->>S3: PutObject raw/{user}/{id}/original.ext (stage raw bytes)
+        G->>K: Publish analysis request (garment_id, staging_key, user_id)
+        G-->>C: 201 Created (garment record)
 
-        %% ── Enqueue ──
-        G->>Q: Publish event (image ref + metadata)
-        G-->>C: 202 Accepted (processing started)
-
-        %% ── Worker picks up job ──
-        Q->>W: Consume event
-        W->>ML: Send image + metadata for inference
-
-        %% ── ML Inference ──
-        ML-->>W: Inference result (clothes classification)
-
-        %% ── Persistence ──
-        W->>A: INSERT metadata + classification result
-        W->>S3: Store image (path reference)
-        A-->>W: Save OK
-        S3-->>W: Upload OK
-
-        %% ── Notify Client (optional) ──
-        W-->>G: Job complete (webhook / event)
-        G-->>C: 200 OK (garment registered + result)
-
+        K->>V: Deliver message (analysis topic)
+        V->>DB: UPDATE status = processing
+        V->>S3: GetObject(staging_key) raw bytes to memory
+        V->>V: run_pipeline (segmentation + classification)
+        V->>S3: PutObject garments/{user}/{id}/processed.png
+        V->>DB: UPDATE image_url, classification, detections, status completed
+        V->>S3: DeleteObject(staging_key)
+        Note over C,G: Async - client polls GET clothes by id or list, no webhook to Go API
     end
 ```
 

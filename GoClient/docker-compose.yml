@@ -34,58 +34,42 @@ services:
   #     - keycloak_data:/opt/keycloak/data
 
 
+  # Dev broker: Apache Kafka KRaft (JVM). Redpanda was removed — its binary often exits 132 (SIGILL)
+  # on hosts without expected SIMD/AVX; Kafka runs on a wider range of CPUs.
   kafka:
-    image: docker.redpanda.com/redpandadata/redpanda:v24.3.1
+    image: apache/kafka:3.9.0
+    hostname: kafka
     container_name: weiclothe_kafka
-    command:
-      - redpanda
-      - start
-      - --smp=1
-      - --memory=256M
-      - --overprovisioned
-      - --kafka-addr=INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9093
-      - --advertise-kafka-addr=INTERNAL://kafka:9092,EXTERNAL://localhost:9093
     ports:
       - "9093:9093"
+    environment:
+      # KRaft single-node; listener names match apache/kafka docker examples (avoid INTERNAL/EXTERNAL + 0.0.0.0 advertised bugs on 3.9).
+      CLUSTER_ID: "4L6g3nShT-eMCtK--X86sw"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9094
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: CONTROLLER://:9094,PLAINTEXT://:9092,PLAINTEXT_HOST://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      KAFKA_HEAP_OPTS: "-Xms128m -Xmx384m"
     volumes:
-      - kafka_data:/var/lib/redpanda/data
-    mem_limit: 384m
+      - kafka_kraft_data:/var/lib/kafka/data
+    mem_limit: 768m
     healthcheck:
-      test: [ "CMD", "rpk", "cluster", "health" ]
+      test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1" ]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 15s
-
-  # ── Production ──
-  # kafka:
-  #   image: apache/kafka:3.9.0
-  #   container_name: weiclothe_kafka
-  #   environment:
-  #     KAFKA_NODE_ID: 1
-  #     KAFKA_PROCESS_ROLES: broker,controller
-  #     KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9094
-  #     KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-  #     KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9093,CONTROLLER://0.0.0.0:9094
-  #     KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9093
-  #     KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
-  #     KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-  #     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-  #     KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-  #     KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-  #     KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-  #     KAFKA_LOG_RETENTION_HOURS: 168
-  #     KAFKA_LOG_SEGMENT_BYTES: 1073741824
-  #   ports:
-  #     - "9093:9093"
-  #   volumes:
-  #     - kafka_data:/var/lib/kafka/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #     start_period: 30s
+      retries: 8
+      start_period: 45s
 
   postgres:
     image: postgres:18-alpine
@@ -98,7 +82,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     mem_limit: 256m
     # TODO: Add production healthcheck mem limit 512m
@@ -109,6 +93,46 @@ services:
       retries: 5
       start_period: 15s
 
+  # Dev S3-compatible store (prod: AWS S3 + IAM on EC2).
+  minio:
+    image: minio/minio:latest
+    container_name: weiclothe_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    mem_limit: 256m
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: weiclothe_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
+      S3_BUCKET: ${S3_BUCKET:-weicloth}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 \"$${MINIO_ROOT_USER}\" \"$${MINIO_ROOT_PASSWORD}\";
+      mc mb local/$${S3_BUCKET} --ignore-existing;
+      exit 0
+      "
+
+  # UI web for topics/messages: image "Redpanda Console" but speaks Kafka standard protocol.
+  # Broker = service `kafka` (Apache Kafka). URL host: http://localhost:8080
   kafka-ui:
     image: docker.redpanda.com/redpandadata/console:v2.7.2
     container_name: weiclothe_kafka_ui
@@ -119,6 +143,24 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+
+  kafka-init:
+    image: apache/kafka:3.9.0
+    container_name: weiclothe_kafka_init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: [ "/bin/bash", "-c" ]
+    command:
+      - |
+        set -e
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists --topic "$$KAFKA_TOPIC_ANALYSIS" --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --create --if-not-exists --topic "$$KAFKA_TOPIC_ANALYSIS_DLQ" --partitions 1 --replication-factor 1
+    environment:
+      KAFKA_TOPIC_ANALYSIS: ${KAFKA_TOPIC_ANALYSIS:-vusion.analysis.request}
+      KAFKA_TOPIC_ANALYSIS_DLQ: ${KAFKA_TOPIC_ANALYSIS_DLQ:-vusion.analysis.dlq}
 
   api:
     build:
@@ -140,20 +182,35 @@ services:
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-go-api}
       - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
       - HTTP_ADDR=:8080
+      - KAFKA_TOPIC_ANALYSIS=${KAFKA_TOPIC_ANALYSIS:-vusion.analysis.request}
+      # Go API stages raw uploads to MinIO/S3 before publishing analysis jobs (same bucket as vusion-ml).
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minio}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-miniosecret}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - S3_BUCKET=${S3_BUCKET:-weicloth}
+      - S3_ENDPOINT_URL=http://minio:9000
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       # Keycloak doesn't have a healthcheck in this compose file so we use started
       keycloak:
         condition: service_started
 
-  # Python ML / análisis (Flask + Gunicorn). Misma red que Kafka/Keycloak que la API Go.
+  # Python ML: consumes KAFKA_TOPIC_ANALYSIS, writes Aurora/Postgres + S3.
   vusion-ml:
     build:
       context: ./services/vusion-ml
       dockerfile: Dockerfile
+      args:
+        BUILDKIT_INLINE_CACHE: "1"
     container_name: weiclothe_vusion_ml
     ports:
       - "5000:5000"
@@ -164,8 +221,26 @@ services:
       KEYCLOAK_BASE_URL: ${VISION_ML_KEYCLOAK_BASE_URL:-http://keycloak:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-weiclothe}
       KEYCLOAK_CLIENT_ID: ${VISION_ML_CLIENT_ID:-vision-ml}
-      KEYCLOAK_CLIENT_SECRET: ${VISION_ML_CLIENT_SECRET:-V1s10nMlS3cr3tK3y2026xYz}
+      KEYCLOAK_CLIENT_SECRET: ${VISION_ML_CLIENT_SECRET:?VISION_ML_CLIENT_SECRET must be set in .env (see .env-example)}
       KAFKA_TOPIC_ANALYSIS: ${KAFKA_TOPIC_ANALYSIS:-vusion.analysis.request}
+      KAFKA_TOPIC_ANALYSIS_DLQ: ${KAFKA_TOPIC_ANALYSIS_DLQ:-vusion.analysis.dlq}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID:-vusion-ml-analysis}
+      ENABLE_ANALYSIS_CONSUMER: ${ENABLE_ANALYSIS_CONSUMER:-true}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SSLMODE: disable
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-miniosecret}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-weicloth}
+      S3_ENDPOINT_URL: http://minio:9000
+      # Browser/clients outside Docker: http://localhost:9000/<bucket>/<key> (path-style)
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000/weicloth}
+      YOLO_MODEL: ${YOLO_MODEL:-yolov8n-seg.pt}
+      CLIP_MODEL: ${CLIP_MODEL:-openai/clip-vit-base-patch32}
       MIDDLEWARE_STRICT_STARTUP: ${MIDDLEWARE_STRICT_STARTUP:-true}
       MIDDLEWARE_HTTP_TIMEOUT_SECONDS: ${MIDDLEWARE_HTTP_TIMEOUT_SECONDS:-10}
       KEYCLOAK_BOOTSTRAP_ATTEMPTS: ${KEYCLOAK_BOOTSTRAP_ATTEMPTS:-40}
@@ -173,8 +248,16 @@ services:
       FLASK_DEBUG: "false"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
+      postgres:
+        condition: service_healthy
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       keycloak:
         condition: service_started
     healthcheck:
@@ -182,9 +265,10 @@ services:
       interval: 15s
       timeout: 8s
       retries: 6
-      start_period: 150s
+      start_period: 300s
 
 volumes:
   keycloak_data:
-  kafka_data:
+  kafka_kraft_data:
   postgres_data:
+  minio_data:

@@ -16,7 +16,8 @@ CREATE TABLE users (
 CREATE TABLE clothes (
     id SERIAL PRIMARY KEY,
     user_id VARCHAR(255) NOT NULL REFERENCES users(sub_keycloak),
-    image_url TEXT NOT NULL UNIQUE,
+    -- Nullable until ML completes; partial unique index below enforces uniqueness for stored URLs.
+    image_url TEXT,
     image_width INT,
     image_height INT,
     garment_type VARCHAR(255) NOT NULL,
@@ -71,6 +72,8 @@ CREATE TABLE clothe_detections (
     CONSTRAINT clothe_detections_bbox_w_check CHECK (bbox_w > 0),
     CONSTRAINT clothe_detections_bbox_h_check CHECK (bbox_h > 0)
 );
+
+CREATE UNIQUE INDEX idx_clothes_image_url_unique ON clothes (image_url) WHERE image_url IS NOT NULL;
 
 CREATE INDEX idx_clothes_user_id ON clothes(user_id);
 CREATE INDEX idx_clothes_status ON clothes(status);

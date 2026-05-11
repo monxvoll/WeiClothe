@@ -52,12 +52,17 @@ func (pgx *ClotheRepository) CreateClothe(ctx context.Context, garment *domain.G
 		status = "queued"
 	}
 
+	var imageURL any
+	if garment.ImageURL != "" {
+		imageURL = garment.ImageURL
+	}
+
 	var id int
 	err := pgx.db.QueryRow(
 		ctx,
 		query,
 		garment.UserID,
-		garment.ImageURL,
+		imageURL,
 		garment.GarmentType,
 		garment.Name,
 		garment.ClassificationID,
@@ -204,6 +209,7 @@ func (pgx *ClotheRepository) GetClotheByID(ctx context.Context, garmentID string
 
 	garment := &domain.Garment{}
 	var dbID int
+	var imageURL sql.NullString
 	var name sql.NullString
 	var classificationID sql.NullString
 	var category sql.NullString
@@ -224,7 +230,7 @@ func (pgx *ClotheRepository) GetClotheByID(ctx context.Context, garmentID string
 	err = pgx.db.QueryRow(ctx, query, id).Scan(
 		&dbID,
 		&garment.UserID,
-		&garment.ImageURL,
+		&imageURL,
 		&garment.GarmentType,
 		&name,
 		&classificationID,
@@ -250,6 +256,9 @@ func (pgx *ClotheRepository) GetClotheByID(ctx context.Context, garmentID string
 	}
 
 	garment.ID = strconv.Itoa(dbID)
+	if imageURL.Valid {
+		garment.ImageURL = imageURL.String
+	}
 	if name.Valid {
 		garment.Name = name.String
 	}
@@ -327,6 +336,7 @@ func (pgx *ClotheRepository) ListClothesByUser(ctx context.Context, userID strin
 	for rows.Next() {
 		var garment domain.Garment
 		var dbID int
+		var imageURL sql.NullString
 		var name sql.NullString
 		var classificationID sql.NullString
 		var category sql.NullString
@@ -347,7 +357,7 @@ func (pgx *ClotheRepository) ListClothesByUser(ctx context.Context, userID strin
 		if err := rows.Scan(
 			&dbID,
 			&garment.UserID,
-			&garment.ImageURL,
+			&imageURL,
 			&garment.GarmentType,
 			&name,
 			&classificationID,
@@ -372,6 +382,9 @@ func (pgx *ClotheRepository) ListClothesByUser(ctx context.Context, userID strin
 		}
 
 		garment.ID = strconv.Itoa(dbID)
+		if imageURL.Valid {
+			garment.ImageURL = imageURL.String
+		}
 		if name.Valid {
 			garment.Name = name.String
 		}

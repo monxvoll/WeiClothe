@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/cors"
 
@@ -52,7 +54,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	keycloak := keycloakAdapter.NewKeycloakAdapter(baseURL, realm, clientID, clientSecret)
+	keycloakTimeout := 10 * time.Second
+	if v := os.Getenv("KEYCLOAK_HTTP_TIMEOUT_SECONDS"); v != "" {
+		if sec, err := strconv.Atoi(v); err == nil && sec > 0 {
+			keycloakTimeout = time.Duration(sec) * time.Second
+		}
+	}
+	keycloak := keycloakAdapter.NewKeycloakAdapter(baseURL, realm, clientID, clientSecret, keycloakTimeout)
 
 	// ── Kafka ──
 	brokersRaw := os.Getenv("KAFKA_BROKERS")

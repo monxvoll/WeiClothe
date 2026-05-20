@@ -2,12 +2,14 @@ package iam_keycloak
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+	"weicloth/internal/core/apperrors"
 )
 
 func TestValidateToken_Success(t *testing.T) {
@@ -26,7 +28,7 @@ func TestValidateToken_Success(t *testing.T) {
 	defer mockServer.Close()
 
 	// 2. Instantiate the adapter, and pass it the mock server URL
-	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret")
+	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret", 10*time.Second)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -55,7 +57,7 @@ func TestValidateToken_InvalidToken(t *testing.T) {
 	defer mockServer.Close()
 
 	// 2. Instantiate the adapter using the mock server URL
-	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret")
+	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret", 10*time.Second)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -70,6 +72,37 @@ func TestValidateToken_InvalidToken(t *testing.T) {
 
 	if uid != "" {
 		t.Errorf("Expected an empty UID for invalid token, but got: %s", uid)
+	}
+	if !errors.Is(err, apperrors.ErrUnauthorized) {
+		t.Errorf("expected ErrUnauthorized, got: %v", err)
+	}
+}
+
+func TestLoginUser_InvalidCredentials(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprintln(w, `{"error":"invalid_grant","error_description":"Invalid user credentials"}`)
+	}))
+	defer mockServer.Close()
+
+	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret", 10*time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := adapter.LoginUser(ctx, "bad@weiclothe.com", "wrong")
+	if err == nil {
+		t.Fatal("expected error for invalid credentials")
+	}
+	if !errors.Is(err, apperrors.ErrInvalidCredentials) {
+		t.Errorf("expected ErrInvalidCredentials, got: %v", err)
+	}
+}
+
+func TestNewKeycloakAdapter_DefaultTimeout(t *testing.T) {
+	adapter := NewKeycloakAdapter("http://localhost", "realm", "id", "secret", 0)
+	if adapter.HTTPClient.Timeout != 10*time.Second {
+		t.Errorf("expected 10s default timeout, got %v", adapter.HTTPClient.Timeout)
 	}
 }
 
@@ -89,7 +122,7 @@ func TestLoginUser_Success(t *testing.T) {
 	defer mockServer.Close()
 
 	// 2. Instantiate the adapter with the mock URL
-	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret")
+	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret", 10*time.Second)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -127,7 +160,7 @@ func TestRegisterUser_Success(t *testing.T) {
 	defer mockServer.Close()
 
 	// 2. Instantiate the adapter
-	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret")
+	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret", 10*time.Second)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -164,7 +197,7 @@ func TestDeleteUser_Success(t *testing.T) {
 
 	//2. Instantiate the adapter
 
-	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret")
+	adapter := NewKeycloakAdapter(mockServer.URL, "weiclothe", "dummy-client", "dummy-secret", 10*time.Second)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

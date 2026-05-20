@@ -1,8 +1,6 @@
 package postgres
 
 import (
-	"fmt"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -12,8 +10,4 @@ type StyleRepository struct {
 
 func NewStyleRepository(db *pgxpool.Pool) *StyleRepository {
 	return &StyleRepository{db: db}
-}
-
-func (pgx *StyleRepository) IsAliveStyle() {
-	fmt.Println("StyleRepository is alive")
 }

@@ -23,10 +23,6 @@ func NewClotheRepository(db *pgxpool.Pool) *ClotheRepository {
 	return &ClotheRepository{db: db}
 }
 
-func (pgx *ClotheRepository) IsAliveClothe() {
-	fmt.Println("ClotheRepository is alive")
-}
-
 func (pgx *ClotheRepository) CreateClothe(ctx context.Context, garment *domain.Garment) error {
 	query := `
 		INSERT INTO clothes (

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -86,7 +87,7 @@ func TestUserService_RegisterUser_HappyPath(t *testing.T) {
 	mockPub := &MockEventPublisher{}
 
 	// 2. Initialize Service
-	userService := NewUserService(mockIdp, mockRepo, mockPub)
+	userService := NewUserService(mockIdp, mockRepo, mockPub, slog.Default())
 
 	// 3. Prepare Input
 	input := domain.RegisterUserInput{
@@ -136,7 +137,7 @@ func TestUserService_RegisterUser_Rollback(t *testing.T) {
 	mockPub := &MockEventPublisher{}
 
 	// 2. Initialize Service
-	userService := NewUserService(mockIdp, mockRepo, mockPub)
+	userService := NewUserService(mockIdp, mockRepo, mockPub, slog.Default())
 
 	// 3. Prepare Input
 	input := domain.RegisterUserInput{
@@ -170,7 +171,7 @@ func TestUserService_UpdateUser_HappyPath(t *testing.T) {
 	mockPub := &MockEventPublisher{}
 
 	// 2. Initialize Service
-	userService := NewUserService(mockIdp, mockRepo, mockPub)
+	userService := NewUserService(mockIdp, mockRepo, mockPub, slog.Default())
 
 	// 3. Prepare Input
 	input := domain.UpdateUserInput{
@@ -204,7 +205,7 @@ func TestUserService_LoginUser_HappyPath(t *testing.T) {
 	mockPub := &MockEventPublisher{}
 
 	// Initialise the service
-	userService := NewUserService(mockIdp, nil, mockPub)
+	userService := NewUserService(mockIdp, nil, mockPub, slog.Default())
 
 	// Build the login input
 	loginInput := domain.LoginInput{

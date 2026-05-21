@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 	"weicloth/internal/core/domain"
 	"weicloth/internal/core/ports"
@@ -14,14 +15,16 @@ type UserService struct {
 	identityProvider ports.IdentityProvider
 	userRepository   ports.UserRepository
 	eventPublisher   ports.EventPublisher
+	log              *slog.Logger
 }
 
 // NewUserService creates a new user service instance with injected dependencies.
-func NewUserService(idp ports.IdentityProvider, repo ports.UserRepository, events ports.EventPublisher) *UserService {
+func NewUserService(idp ports.IdentityProvider, repo ports.UserRepository, events ports.EventPublisher, logger *slog.Logger) *UserService {
 	return &UserService{
 		identityProvider: idp,
 		userRepository:   repo,
 		eventPublisher:   events,
+		log:              logger.With("service", "user"),
 	}
 }
 
@@ -73,12 +76,14 @@ func (s *UserService) RegisterUser(ctx context.Context, input domain.RegisterUse
 		"email": input.Email,
 	}
 
-	payloadBytes, _ := json.Marshal(eventPayload)
-
-	err = s.eventPublisher.Publish(ctx, "user.created", uid, payloadBytes)
+	payloadBytes, err := json.Marshal(eventPayload)
 	if err != nil {
-		fmt.Printf("Warning: user was created but event publication failed: %v", err)
-		// We usually don't return an error here because the creation itself was successful.
+		s.log.Error("marshal user.created event", "uid", uid, "err", err)
+		return nil
+	}
+
+	if err = s.eventPublisher.Publish(ctx, "user.created", uid, payloadBytes); err != nil {
+		s.log.Warn("event publish failed", "event", "user.created", "uid", uid, "err", err)
 	}
 
 	return nil
@@ -105,11 +110,14 @@ func (s *UserService) UpdateUser(ctx context.Context, uid string, input domain.U
 		"uid": userRecord.SubKeycloak,
 	}
 
-	payloadBytes, _ := json.Marshal(eventPayload)
-
-	err = s.eventPublisher.Publish(ctx, "user.updated", userRecord.SubKeycloak, payloadBytes)
+	payloadBytes, err := json.Marshal(eventPayload)
 	if err != nil {
-		fmt.Printf("Warning: user was updated but event publication failed: %v", err)
+		s.log.Error("marshal user.updated event", "uid", userRecord.SubKeycloak, "err", err)
+		return nil
+	}
+
+	if err = s.eventPublisher.Publish(ctx, "user.updated", userRecord.SubKeycloak, payloadBytes); err != nil {
+		s.log.Warn("event publish failed", "event", "user.updated", "uid", userRecord.SubKeycloak, "err", err)
 	}
 
 	return nil
@@ -122,13 +130,13 @@ func (s *UserService) LoginUser(ctx context.Context, input domain.LoginInput) (s
 	//1. Ask Keycloak to generate the token
 	token, err := s.identityProvider.LoginUser(ctx, input.Email, input.Password)
 	if err != nil {
-		return "", fmt.Errorf("login failed in identity provider: %w", err)
+		return "", fmt.Errorf("login failed: %w", err)
 	}
 
 	// Validate token and get UID
 	uid, err := s.identityProvider.ValidateToken(ctx, token)
 	if err != nil {
-		return "", fmt.Errorf("token validation failed: %w", err)
+		return "", fmt.Errorf("token validation failed after login: %w", err)
 	}
 
 	//3. Build the event payload
@@ -137,11 +145,15 @@ func (s *UserService) LoginUser(ctx context.Context, input domain.LoginInput) (s
 		"email":     input.Email,
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	}
-	payloadBytes, _ := json.Marshal(eventPayload)
+	payloadBytes, marshalErr := json.Marshal(eventPayload)
+	if marshalErr != nil {
+		s.log.Error("marshal user.logged_in event", "uid", uid, "err", marshalErr)
+		return token, nil
+	}
 
 	//4. Publish the success event to the Broker (Kafka)
 	if err := s.eventPublisher.Publish(ctx, "user.logged_in", uid, payloadBytes); err != nil {
-		fmt.Printf("Warning: login event not published: %v\n", err)
+		s.log.Warn("event publish failed", "event", "user.logged_in", "uid", uid, "err", err)
 	}
 
 	return token, nil

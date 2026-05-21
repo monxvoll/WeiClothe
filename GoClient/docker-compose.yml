@@ -128,6 +128,7 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 \"$${MINIO_ROOT_USER}\" \"$${MINIO_ROOT_PASSWORD}\";
       mc mb local/$${S3_BUCKET} --ignore-existing;
+      mc anonymous set download local/$${S3_BUCKET};
       exit 0
       "
 
@@ -237,7 +238,8 @@ services:
       AWS_REGION: ${AWS_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET:-weicloth}
       S3_ENDPOINT_URL: http://minio:9000
-      # Browser/clients outside Docker: http://localhost:9000/<bucket>/<key> (path-style)
+      # Base URL stored in clothes.image_url for browsers (path-style: <base>/<key>). Override for CDN/prod host.
+      # Dev: minio-init sets anonymous download on bucket so plain URLs work without presigning.
       S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-http://localhost:9000/weicloth}
       YOLO_MODEL: ${YOLO_MODEL:-yolov8n-seg.pt}
       CLIP_MODEL: ${CLIP_MODEL:-openai/clip-vit-base-patch32}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"weicloth/internal/adapters/handler/auth"
+	"weicloth/internal/adapters/handler/httperrors"
 	"weicloth/internal/core/domain"
 	"weicloth/internal/core/services"
 
@@ -52,6 +53,22 @@ func (h *HTTPHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "garment_type is required"})
 		return
 	}
+	if err := domain.ValidateGarmentType(garmentType); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	garmentType = strings.ToLower(garmentType)
+
+	statusField := strings.TrimSpace(c.PostForm("status"))
+	if err := domain.ValidateOptionalGarmentStatus(statusField); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	sourceField := strings.TrimSpace(c.PostForm("source"))
+	if err := domain.ValidateOptionalGarmentSource(sourceField); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	file, header, err := c.Request.FormFile(RegisterMultipartFieldImage)
 	if err != nil {
@@ -86,8 +103,8 @@ func (h *HTTPHandler) Register(c *gin.Context) {
 		UserID:      subject,
 		GarmentType: garmentType,
 		Name:        strings.TrimSpace(c.PostForm("name")),
-		Source:      strings.TrimSpace(c.PostForm("source")),
-		Status:      strings.TrimSpace(c.PostForm("status")),
+		Source:      sourceField,
+		Status:      statusField,
 	}
 
 	if err := h.clotheService.RegisterClothe(c.Request.Context(), garment, data, ext, contentType); err != nil {
@@ -128,6 +145,10 @@ func (h *HTTPHandler) UpdateStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if err := domain.ValidateGarmentStatus(req.Status); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := h.clotheService.UpdateClotheStatus(c.Request.Context(), garmentID, req.Status, subject); err != nil {
 		writeClotheServiceError(c, err)
@@ -151,6 +172,14 @@ func (h *HTTPHandler) SaveClassification(c *gin.Context) {
 
 	var req SaveClassificationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := domain.ValidateOptionalGarmentStatus(req.Status); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := domain.ValidateOptionalGarmentSource(req.Source); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -267,16 +296,7 @@ func (h *HTTPHandler) requireGarmentOwner(c *gin.Context, garmentID, subject str
 	return garment, true
 }
 
-// writeClotheServiceError maps repository/service errors to 400 / 404 / 500 without importing storage drivers.
-// 500 responses return a generic message to avoid leaking internal DB or query details to clients.
+// writeClotheServiceError maps repository/service errors to 400 / 404 / 500 without leaking internals.
 func writeClotheServiceError(c *gin.Context, err error) {
-	msg := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(msg, "invalid garment id"):
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-	case strings.Contains(msg, "not found"), strings.Contains(msg, "no rows"):
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
-	}
+	httperrors.WriteServiceError(c, err)
 }

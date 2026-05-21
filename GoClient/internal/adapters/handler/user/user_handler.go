@@ -3,6 +3,7 @@ package user
 import (
 	"net/http"
 	"time"
+	"weicloth/internal/adapters/handler/httperrors"
 	"weicloth/internal/core/domain"
 	"weicloth/internal/core/services"
 
@@ -52,7 +53,7 @@ func (h *HTTPHandler) Register(c *gin.Context) {
 
 	//Call use case
 	if err := h.userService.RegisterUser(c.Request.Context(), input); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httperrors.WriteServiceError(c, err)
 		return
 	}
 
@@ -74,7 +75,7 @@ func (h *HTTPHandler) Login(c *gin.Context) {
 
 	token, err := h.userService.LoginUser(c.Request.Context(), input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httperrors.WriteServiceError(c, err)
 		return
 	}
 

@@ -3,15 +3,18 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/cors"
 
 	keycloakAdapter "weicloth/internal/adapters/iam_keycloak"
 
 	"weicloth/internal/adapters/handler"
+	mw "weicloth/internal/adapters/handler/middleware"
 
 	kafkaAdapter "weicloth/internal/adapters/event_publisher/kafka"
 
@@ -25,9 +28,19 @@ import (
 )
 
 func main() {
+	// ── Logger ──
+	var logHandler slog.Handler
+	if os.Getenv("LOG_FORMAT") == "json" {
+		logHandler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
+	} else {
+		logHandler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
+	}
+	logger := slog.New(logHandler)
+	slog.SetDefault(logger)
+
 	err := godotenv.Load()
 	if err != nil {
-		fmt.Println("Warning: No .env file found. Falling back to system environment variables.")
+		slog.Warn("no .env file found, falling back to system environment variables")
 	}
 
 	// ── Keycloak ──
@@ -37,15 +50,23 @@ func main() {
 	clientSecret := os.Getenv("KEYCLOAK_CLIENT_SECRET")
 
 	if clientSecret == "" {
-		log.Fatal("Fatal Error: KEYCLOAK_CLIENT_SECRET is missing. Check your .env file.")
+		slog.Error("KEYCLOAK_CLIENT_SECRET is missing, check your .env file")
+		os.Exit(1)
 	}
 
-	keycloak := keycloakAdapter.NewKeycloakAdapter(baseURL, realm, clientID, clientSecret)
+	keycloakTimeout := 10 * time.Second
+	if v := os.Getenv("KEYCLOAK_HTTP_TIMEOUT_SECONDS"); v != "" {
+		if sec, err := strconv.Atoi(v); err == nil && sec > 0 {
+			keycloakTimeout = time.Duration(sec) * time.Second
+		}
+	}
+	keycloak := keycloakAdapter.NewKeycloakAdapter(baseURL, realm, clientID, clientSecret, keycloakTimeout)
 
 	// ── Kafka ──
 	brokersRaw := os.Getenv("KAFKA_BROKERS")
 	if brokersRaw == "" {
-		log.Fatal("Fatal Error: KAFKA_BROKERS is missing. Check your .env file.")
+		slog.Error("KAFKA_BROKERS is missing, check your .env file")
+		os.Exit(1)
 	}
 	brokers := strings.Split(brokersRaw, ",")
 
@@ -56,7 +77,8 @@ func main() {
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s", os.Getenv("DB_HOST"), os.Getenv("DB_PORT"), os.Getenv("DB_USER"), os.Getenv("DB_PASSWORD"), os.Getenv("DB_NAME"), os.Getenv("DB_SSLMODE"))
 	postgres, err := postgresAdapter.NewConnection(context.Background(), dsn)
 	if err != nil {
-		log.Fatalf("Fatal error connecting to Postgres: %v", err)
+		slog.Error("failed to connect to postgres", "err", err)
+		os.Exit(1)
 	}
 	defer postgres.Close()
 
@@ -66,7 +88,7 @@ func main() {
 	styleRepo := postgresAdapter.NewStyleRepository(postgres)
 
 	// ── Services ──
-	userService := services.NewUserService(keycloak, userRepo, producer)
+	userService := services.NewUserService(keycloak, userRepo, producer, logger)
 	rawAnalysis, hasAnalysisEnv := os.LookupEnv("KAFKA_TOPIC_ANALYSIS")
 	analysisTopic := strings.TrimSpace(rawAnalysis)
 	if !hasAnalysisEnv {
@@ -86,15 +108,17 @@ func main() {
 		sk := strings.TrimSpace(os.Getenv("AWS_SECRET_ACCESS_KEY"))
 		u, err := storages3.NewUploader(ctxBoot, region, s3Bucket, endpoint, ak, sk)
 		if err != nil {
-			log.Fatalf("Fatal: S3 uploader: %v", err)
+			slog.Error("failed to create S3 uploader", "err", err)
+			os.Exit(1)
 		}
 		storage = u
 	}
 	if analysisTopic != "" && storage == nil {
-		log.Fatal("Fatal: S3_BUCKET is required when garment analysis is enabled (set KAFKA_TOPIC_ANALYSIS empty to disable publishing)")
+		slog.Error("S3_BUCKET is required when garment analysis is enabled (set KAFKA_TOPIC_ANALYSIS empty to disable)")
+		os.Exit(1)
 	}
 
-	clotheService := services.NewClotheService(clotheRepo, producer, analysisTopic, storage)
+	clotheService := services.NewClotheService(clotheRepo, producer, analysisTopic, storage, logger)
 
 	_ = styleRepo
 
@@ -168,6 +192,7 @@ func main() {
 	httpHandler := handler.NewHTTPHandler(userService, clotheService)
 	r := gin.Default()
 
+	r.Use(mw.RequestIDMiddleware(logger))
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:4200"}, // La URL exacta de tu Angular
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -181,8 +206,9 @@ func main() {
 	if addr == "" {
 		addr = ":8080"
 	}
-	log.Printf("HTTP listening on %s", addr)
+	slog.Info("server starting", "addr", addr, "log_format", os.Getenv("LOG_FORMAT"))
 	if err := r.Run(addr); err != nil {
-		log.Fatalf("server: %v", err)
+		slog.Error("server failed", "err", err)
+		os.Exit(1)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -19,6 +20,7 @@ type ClotheService struct {
 	eventPublisher   ports.EventPublisher
 	analysisTopic    string // e.g. vusion.analysis.request; empty disables ML queue publish
 	storage          ports.StorageUploader
+	log              *slog.Logger
 }
 
 type clotheAuditEvent struct {
@@ -46,12 +48,14 @@ func NewClotheService(
 	events ports.EventPublisher,
 	analysisTopic string,
 	storage ports.StorageUploader,
+	logger *slog.Logger,
 ) *ClotheService {
 	return &ClotheService{
 		clotheRepository: repo,
 		eventPublisher:   events,
 		analysisTopic:    analysisTopic,
 		storage:          storage,
+		log:              logger.With("service", "clothe"),
 	}
 }
 
@@ -83,7 +87,7 @@ func (s *ClotheService) RegisterClothe(
 		key := fmt.Sprintf("raw/%s/%s/original%s", garment.UserID, garment.ID, rawExt)
 		if err := s.storage.StageRaw(ctx, key, rawImage, imageContentType); err != nil {
 			if uerr := s.clotheRepository.UpdateClotheStatus(ctx, garment.ID, "failed"); uerr != nil {
-				fmt.Printf("Warning: could not mark garment %s failed after staging error: %v\n", garment.ID, uerr)
+				s.log.Error("mark garment failed after staging error", "garment_id", garment.ID, "err", uerr)
 			}
 			return fmt.Errorf("stage raw image: %w", err)
 		}
@@ -149,7 +153,7 @@ func (s *ClotheService) ListClothesByUser(ctx context.Context, userID string) ([
 func (s *ClotheService) publishAuditEvent(ctx context.Context, event clotheAuditEvent) {
 	payload, err := json.Marshal(event)
 	if err != nil {
-		fmt.Printf("Warning: failed to marshal clothe audit event: %v\n", err)
+		s.log.Error("marshal audit event", "event_type", event.EventType, "err", err)
 		return
 	}
 
@@ -162,8 +166,7 @@ func (s *ClotheService) publishAuditEvent(ctx context.Context, event clotheAudit
 	defer cancel()
 
 	if err := s.eventPublisher.Publish(publishCtx, clotheAuditTopic, key, payload); err != nil {
-		// Best effort: business operation is already completed.
-		fmt.Printf("Warning: clothe audit publication failed: %v\n", err)
+		s.log.Warn("audit publish failed", "topic", clotheAuditTopic, "garment_id", event.GarmentID, "err", err)
 	}
 }
 
@@ -173,7 +176,7 @@ func (s *ClotheService) publishAnalysisRequest(ctx context.Context, garment *dom
 	}
 	id, err := strconv.Atoi(garment.ID)
 	if err != nil {
-		fmt.Printf("Warning: garment id not numeric, skip analysis publish: %v\n", err)
+		s.log.Warn("garment id not numeric, skipping analysis publish", "garment_id", garment.ID, "err", err)
 		return
 	}
 	body := clotheAnalysisRequestPayload{
@@ -184,13 +187,13 @@ func (s *ClotheService) publishAnalysisRequest(ctx context.Context, garment *dom
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		fmt.Printf("Warning: marshal analysis request: %v\n", err)
+		s.log.Error("marshal analysis request", "garment_id", garment.ID, "err", err)
 		return
 	}
 	publishCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	key := garment.ID
 	if err := s.eventPublisher.Publish(publishCtx, s.analysisTopic, key, payload); err != nil {
-		fmt.Printf("Warning: analysis request publication failed: %v\n", err)
+		s.log.Warn("analysis publish failed", "topic", s.analysisTopic, "garment_id", garment.ID, "err", err)
 	}
 }

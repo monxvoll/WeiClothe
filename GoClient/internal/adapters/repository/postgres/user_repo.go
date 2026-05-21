@@ -17,10 +17,6 @@ func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 	return &UserRepository{db: db}
 }
 
-func (pgx *UserRepository) IsAliveUser() {
-	fmt.Println("UserRepository is alive")
-}
-
 func (pgx *UserRepository) CreateUser(ctx context.Context, user *domain.User) error {
 	query :=
 		`

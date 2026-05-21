@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+	"weicloth/internal/core/apperrors"
 )
 
 // KeycloakAdapter holds the necessary configuration and HTTP client
@@ -56,13 +58,16 @@ type keycloakUserInfoResponse struct {
 // NewKeycloakAdapter initializes and returns a new instance of KeycloakAdapter.
 // It receives the environment variables needed
 // to establish a connection with the Keycloak Identity Provider.
-func NewKeycloakAdapter(baseURL, realm, clientID, clientSecret string) *KeycloakAdapter {
+func NewKeycloakAdapter(baseURL, realm, clientID, clientSecret string, timeout time.Duration) *KeycloakAdapter {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
 	return &KeycloakAdapter{
 		BaseURL:      baseURL,
 		Realm:        realm,
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		HTTPClient:   &http.Client{},
+		HTTPClient:   &http.Client{Timeout: timeout},
 	}
 }
 
@@ -137,7 +142,10 @@ func (k *KeycloakAdapter) RegisterUser(ctx context.Context, username, email, pas
 		},
 	}
 
-	jsonBody, _ := json.Marshal(userBody)
+	jsonBody, err := json.Marshal(userBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal user body: %w", err)
+	}
 	endpoint := fmt.Sprintf("%s/admin/realms/%s/users", k.BaseURL, k.Realm)
 
 	// 3. Create the HTTP POST request to the Admin API
@@ -214,6 +222,9 @@ func (k *KeycloakAdapter) LoginUser(ctx context.Context, email string, password 
 	}
 
 	// 8. Check if Keycloak rejected the login
+	if res.StatusCode == http.StatusUnauthorized {
+		return "", fmt.Errorf("%w: %s", apperrors.ErrInvalidCredentials, tokenRes.ErrorDesc)
+	}
 	if res.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("keycloak error (%d): %s - %s", res.StatusCode, tokenRes.Error, tokenRes.ErrorDesc)
 	}
@@ -245,6 +256,9 @@ func (k *KeycloakAdapter) ValidateToken(ctx context.Context, token string) (stri
 	defer res.Body.Close()
 
 	// 5. If the token is fake, expired, or manipulated, Keycloak returns 401 Unauthorized
+	if res.StatusCode == http.StatusUnauthorized {
+		return "", fmt.Errorf("%w", apperrors.ErrUnauthorized)
+	}
 	if res.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("invalid or expired token: keycloak returned status %d", res.StatusCode)
 	}

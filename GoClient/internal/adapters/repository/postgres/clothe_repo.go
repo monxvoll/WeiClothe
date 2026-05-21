@@ -3,10 +3,12 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
 
+	"weicloth/internal/core/apperrors"
 	"weicloth/internal/core/domain"
 	"weicloth/internal/core/ports"
 
@@ -21,10 +23,6 @@ var _ ports.ClotheRepository = (*ClotheRepository)(nil)
 
 func NewClotheRepository(db *pgxpool.Pool) *ClotheRepository {
 	return &ClotheRepository{db: db}
-}
-
-func (pgx *ClotheRepository) IsAliveClothe() {
-	fmt.Println("ClotheRepository is alive")
 }
 
 func (pgx *ClotheRepository) CreateClothe(ctx context.Context, garment *domain.Garment) error {
@@ -80,7 +78,7 @@ func (pgx *ClotheRepository) CreateClothe(ctx context.Context, garment *domain.G
 		status,
 	).Scan(&id, &garment.CreatedAt, &garment.UpdatedAt)
 	if err != nil {
-		return fmt.Errorf("failed to create clothe: %w", err)
+		return fmt.Errorf("failed to create clothe: %w", mapPgErr(err))
 	}
 
 	garment.ID = strconv.Itoa(id)
@@ -93,7 +91,7 @@ func (pgx *ClotheRepository) CreateClothe(ctx context.Context, garment *domain.G
 func (pgx *ClotheRepository) UpdateClotheStatus(ctx context.Context, garmentID string, status string) error {
 	id, err := strconv.Atoi(garmentID)
 	if err != nil {
-		return fmt.Errorf("invalid garment id: %w", err)
+		return fmt.Errorf("%w: %w", apperrors.ErrInvalidID, err)
 	}
 
 	query := `
@@ -104,10 +102,10 @@ func (pgx *ClotheRepository) UpdateClotheStatus(ctx context.Context, garmentID s
 
 	cmd, err := pgx.db.Exec(ctx, query, status, id)
 	if err != nil {
-		return fmt.Errorf("failed to update clothe status: %w", err)
+		return fmt.Errorf("failed to update clothe status: %w", mapPgErr(err))
 	}
 	if cmd.RowsAffected() == 0 {
-		return fmt.Errorf("clothe not found")
+		return fmt.Errorf("%w", apperrors.ErrNotFound)
 	}
 
 	return nil
@@ -116,7 +114,7 @@ func (pgx *ClotheRepository) UpdateClotheStatus(ctx context.Context, garmentID s
 func (pgx *ClotheRepository) SaveClassification(ctx context.Context, garment *domain.Garment) error {
 	id, err := strconv.Atoi(garment.ID)
 	if err != nil {
-		return fmt.Errorf("invalid garment id: %w", err)
+		return fmt.Errorf("%w: %w", apperrors.ErrInvalidID, err)
 	}
 
 	query := `
@@ -178,10 +176,10 @@ func (pgx *ClotheRepository) SaveClassification(ctx context.Context, garment *do
 		id,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to save clothe classification: %w", err)
+		return fmt.Errorf("failed to save clothe classification: %w", mapPgErr(err))
 	}
 	if cmd.RowsAffected() == 0 {
-		return fmt.Errorf("clothe not found")
+		return fmt.Errorf("%w", apperrors.ErrNotFound)
 	}
 
 	garment.Status = status
@@ -194,7 +192,7 @@ func (pgx *ClotheRepository) SaveClassification(ctx context.Context, garment *do
 func (pgx *ClotheRepository) GetClotheByID(ctx context.Context, garmentID string) (*domain.Garment, error) {
 	id, err := strconv.Atoi(garmentID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid garment id: %w", err)
+		return nil, fmt.Errorf("%w: %w", apperrors.ErrInvalidID, err)
 	}
 
 	query := `
@@ -252,6 +250,9 @@ func (pgx *ClotheRepository) GetClotheByID(ctx context.Context, garmentID string
 		&garment.UpdatedAt,
 	)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w", apperrors.ErrNotFound)
+		}
 		return nil, fmt.Errorf("failed to get clothe by id: %w", err)
 	}
 

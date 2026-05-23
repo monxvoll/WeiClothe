@@ -18,4 +18,5 @@ func RegisterRoutes(g *gin.RouterGroup, h *HTTPHandler, idp ports.IdentityProvid
 	secured.GET("/:id", h.GetByID)
 	secured.PATCH("/:id/status", h.UpdateStatus)
 	secured.PATCH("/:id/classification", h.SaveClassification)
+	secured.GET("/recommendations", h.GetRecommendations)
 }

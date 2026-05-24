@@ -13,10 +13,10 @@ func RegisterRoutes(g *gin.RouterGroup, h *HTTPHandler, idp ports.IdentityProvid
 	secured := g.Group("")
 	secured.Use(auth.BearerMiddleware(idp))
 	secured.GET("/ping", h.Ping)
+	secured.GET("/recommendations", h.GetRecommendations)
 	secured.POST("", h.Register)
 	secured.GET("", h.ListByUser)
 	secured.GET("/:id", h.GetByID)
 	secured.PATCH("/:id/status", h.UpdateStatus)
 	secured.PATCH("/:id/classification", h.SaveClassification)
-	secured.GET("/recommendations", h.GetRecommendations)
 }

@@ -300,3 +300,35 @@ func (h *HTTPHandler) requireGarmentOwner(c *gin.Context, garmentID, subject str
 func writeClotheServiceError(c *gin.Context, err error) {
 	httperrors.WriteServiceError(c, err)
 }
+
+// GetRecommendations returns outfit combinations for the given user_id query parameter.
+func (h *HTTPHandler) GetRecommendations(c *gin.Context) {
+	subject, ok := h.authenticatedSubject(c)
+	if !ok {
+		return
+	}
+
+	var q listClothesQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if q.UserID != subject {
+		c.JSON(http.StatusForbidden, gin.H{"error": "cannot get recommendations for another user"})
+		return
+	}
+
+	recommendations, err := h.clotheService.GetRecommendations(c.Request.Context(), q.UserID)
+	if err != nil {
+		writeClotheServiceError(c, err)
+		return
+	}
+
+	// Always return an array, even if empty
+	if recommendations == nil {
+		recommendations = []domain.OutfitRecommendation{}
+	}
+
+	c.JSON(http.StatusOK, recommendations)
+}

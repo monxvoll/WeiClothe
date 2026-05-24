@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"strconv"
 	"time"
 
@@ -196,4 +197,64 @@ func (s *ClotheService) publishAnalysisRequest(ctx context.Context, garment *dom
 	if err := s.eventPublisher.Publish(publishCtx, s.analysisTopic, key, payload); err != nil {
 		s.log.Warn("analysis publish failed", "topic", s.analysisTopic, "garment_id", garment.ID, "err", err)
 	}
+}
+
+// GetRecommendations generates basic outfit combinations based on the user's wardrobe.
+// It groups clothes by category (Top, Bottom, Footwear) and creates random complete outfits.
+func (s *ClotheService) GetRecommendations(ctx context.Context, userID string) ([]domain.OutfitRecommendation, error) {
+	garments, err := s.clotheRepository.ListClothesByUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch user wardrobe: %w", err)
+	}
+
+	var tops []domain.Garment
+	var bottoms []domain.Garment
+	var shoes []domain.Garment
+
+	// Group clothes by their category detected by the ML service
+	for _, g := range garments {
+		if g.Status != "completed" {
+			continue
+		}
+
+		category := g.Category
+		if category == "" {
+			category = g.GarmentType // Fallback to raw type if category is missing
+		}
+
+		// Simple matching for categories in both English and Spanish
+		switch category {
+		case "shirt", "jacket", "Camiseta", "top", "dress":
+			tops = append(tops, g)
+		case "pants", "Pantalón", "bottom":
+			bottoms = append(bottoms, g)
+		case "shoes", "Calzado":
+			shoes = append(shoes, g)
+		}
+	}
+
+	var recommendations []domain.OutfitRecommendation
+
+	// Only generate outfits if we have at least one item of each type
+	if len(tops) > 0 && len(bottoms) > 0 && len(shoes) > 0 {
+		r := rand.New(rand.NewSource(time.Now().UnixNano()))
+		maxOutfits := 3
+		for i := 0; i < maxOutfits; i++ {
+			top := tops[r.Intn(len(tops))]
+			bottom := bottoms[r.Intn(len(bottoms))]
+			shoe := shoes[r.Intn(len(shoes))]
+
+			outfit := domain.OutfitRecommendation{
+				ID:          fmt.Sprintf("rec-%s-%d", userID, time.Now().UnixNano()),
+				Name:        fmt.Sprintf("Outfit Recommendation #%d", i+1),
+				Top:         top,
+				Bottom:      bottom,
+				Footwear:    shoe,
+				Description: "A great combination built from your wardrobe!",
+			}
+			recommendations = append(recommendations, outfit)
+		}
+	}
+
+	return recommendations, nil
 }

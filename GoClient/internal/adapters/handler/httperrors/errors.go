@@ -2,6 +2,7 @@ package httperrors
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"weicloth/internal/core/apperrors"
@@ -11,6 +12,7 @@ import (
 
 // WriteServiceError maps sentinel errors to HTTP status codes without leaking internals.
 func WriteServiceError(c *gin.Context, err error) {
+	fmt.Printf("DEBUG SERVICE ERROR: %+v\n", err)
 	switch {
 	case errors.Is(err, apperrors.ErrInvalidCredentials):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})

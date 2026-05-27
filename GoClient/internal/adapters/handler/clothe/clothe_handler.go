@@ -4,6 +4,7 @@ package clothe
 import (
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 	"weicloth/internal/adapters/handler/auth"
@@ -48,16 +49,11 @@ func (h *HTTPHandler) Register(c *gin.Context) {
 		defer func() { _ = c.Request.MultipartForm.RemoveAll() }()
 	}
 
-	garmentType := strings.TrimSpace(c.PostForm(RegisterMultipartFieldGarmentType))
-	if garmentType == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "garment_type is required"})
-		return
-	}
-	if err := domain.ValidateGarmentType(garmentType); err != nil {
+	garmentType, err := domain.ResolveGarmentType(c.PostForm(RegisterMultipartFieldGarmentType))
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	garmentType = strings.ToLower(garmentType)
 
 	statusField := strings.TrimSpace(c.PostForm("status"))
 	if err := domain.ValidateOptionalGarmentStatus(statusField); err != nil {
@@ -95,6 +91,9 @@ func (h *HTTPHandler) Register(c *gin.Context) {
 	detected := http.DetectContentType(data)
 	ext, contentType, valid := garmentImageExtFromMIME(detected)
 	if !valid {
+		ext, contentType, valid = garmentImageExtFromFilename(header.Filename)
+	}
+	if !valid {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported image type; use jpeg, png, or webp"})
 		return
 	}
@@ -122,6 +121,19 @@ func garmentImageExtFromMIME(detected string) (ext string, contentType string, o
 	case "image/png":
 		return ".png", "image/png", true
 	case "image/webp":
+		return ".webp", "image/webp", true
+	default:
+		return "", "", false
+	}
+}
+
+func garmentImageExtFromFilename(name string) (ext string, contentType string, ok bool) {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".jpg", ".jpeg":
+		return ".jpg", "image/jpeg", true
+	case ".png":
+		return ".png", "image/png", true
+	case ".webp":
 		return ".webp", "image/webp", true
 	default:
 		return "", "", false
@@ -301,14 +313,21 @@ func writeClotheServiceError(c *gin.Context, err error) {
 	httperrors.WriteServiceError(c, err)
 }
 
-// GetRecommendations returns outfit combinations for the given user_id query parameter.
+type recommendationsQuery struct {
+	UserID   string `form:"user_id" binding:"required"`
+	Season   string `form:"season"`
+	Occasion string `form:"occasion"`
+	Limit    int    `form:"limit"`
+}
+
+// GetRecommendations returns metadata-scored outfit combinations for the user's wardrobe.
 func (h *HTTPHandler) GetRecommendations(c *gin.Context) {
 	subject, ok := h.authenticatedSubject(c)
 	if !ok {
 		return
 	}
 
-	var q listClothesQuery
+	var q recommendationsQuery
 	if err := c.ShouldBindQuery(&q); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -319,16 +338,96 @@ func (h *HTTPHandler) GetRecommendations(c *gin.Context) {
 		return
 	}
 
-	recommendations, err := h.clotheService.GetRecommendations(c.Request.Context(), q.UserID)
+	req := domain.RecommendationRequest{
+		UserID:   q.UserID,
+		Season:   strings.TrimSpace(q.Season),
+		Occasion: strings.TrimSpace(q.Occasion),
+		Limit:    q.Limit,
+	}
+
+	recommendations, err := h.clotheService.GetRecommendations(c.Request.Context(), req)
 	if err != nil {
 		writeClotheServiceError(c, err)
 		return
 	}
 
-	// Always return an array, even if empty
 	if recommendations == nil {
 		recommendations = []domain.OutfitRecommendation{}
 	}
 
 	c.JSON(http.StatusOK, recommendations)
+}
+
+type stylePreferencesQuery struct {
+	UserID string `form:"user_id" binding:"required"`
+}
+
+type upsertStylePreferencesRequest struct {
+	PreferredColors    []string `json:"preferred_colors"`
+	PreferredOccasions []string `json:"preferred_occasions"`
+	PreferredSeasons   []string `json:"preferred_seasons"`
+	AvoidColors        []string `json:"avoid_colors"`
+}
+
+// GetStylePreferences returns the user's saved palette and style filters.
+func (h *HTTPHandler) GetStylePreferences(c *gin.Context) {
+	subject, ok := h.authenticatedSubject(c)
+	if !ok {
+		return
+	}
+
+	var q stylePreferencesQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if q.UserID != subject {
+		c.JSON(http.StatusForbidden, gin.H{"error": "cannot get preferences for another user"})
+		return
+	}
+
+	prefs, err := h.clotheService.GetUserStylePreferences(c.Request.Context(), q.UserID)
+	if err != nil {
+		writeClotheServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, prefs)
+}
+
+// PutStylePreferences creates or updates the user's palette and style filters.
+func (h *HTTPHandler) PutStylePreferences(c *gin.Context) {
+	subject, ok := h.authenticatedSubject(c)
+	if !ok {
+		return
+	}
+
+	var q stylePreferencesQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if q.UserID != subject {
+		c.JSON(http.StatusForbidden, gin.H{"error": "cannot update preferences for another user"})
+		return
+	}
+
+	var body upsertStylePreferencesRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	prefs := &domain.UserStylePreferences{
+		UserID:             q.UserID,
+		PreferredColors:    body.PreferredColors,
+		PreferredOccasions: body.PreferredOccasions,
+		PreferredSeasons:   body.PreferredSeasons,
+		AvoidColors:        body.AvoidColors,
+	}
+
+	if err := h.clotheService.UpsertUserStylePreferences(c.Request.Context(), prefs); err != nil {
+		writeClotheServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, prefs)
 }

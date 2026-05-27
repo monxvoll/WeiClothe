@@ -29,10 +29,12 @@ type Garment struct {
 
 // OutfitRecommendation represents a complete clothing combination suggested to the user.
 type OutfitRecommendation struct {
-	ID          string  `json:"id"`           // Unique identifier for the outfit
-	Name        string  `json:"name"`         // E.g., "Casual Summer Outfit"
-	Top         Garment `json:"top"`          // Shirt, T-shirt, etc.
-	Bottom      Garment `json:"bottom"`       // Pants, Shorts, etc.
-	Footwear    Garment `json:"footwear"`     // Shoes, Sneakers, etc.
-	Description string  `json:"description"`  // Brief explanation of why it was recommended
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Top         Garment          `json:"top"`
+	Bottom      Garment          `json:"bottom"`
+	Footwear    Garment          `json:"footwear"`
+	Score       float64          `json:"score"`
+	Reasoning   OutfitReasoning  `json:"reasoning"`
+	Description string           `json:"description"`
 }

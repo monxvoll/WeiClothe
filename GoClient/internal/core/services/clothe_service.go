@@ -3,12 +3,13 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"strconv"
 	"time"
 
+	"weicloth/internal/core/apperrors"
 	"weicloth/internal/core/domain"
 	"weicloth/internal/core/ports"
 )
@@ -17,11 +18,13 @@ const clotheAuditTopic = "audit.clothes.v1"
 
 // ClotheService orchestrates garment persistence and operational audit events.
 type ClotheService struct {
-	clotheRepository ports.ClotheRepository
-	eventPublisher   ports.EventPublisher
-	analysisTopic    string // e.g. vusion.analysis.request; empty disables ML queue publish
-	storage          ports.StorageUploader
-	log              *slog.Logger
+	clotheRepository    ports.ClotheRepository
+	styleRepository     ports.StyleRepository
+	recommendationEngine *RecommendationEngine
+	eventPublisher      ports.EventPublisher
+	analysisTopic       string // e.g. vusion.analysis.request; empty disables ML queue publish
+	storage             ports.StorageUploader
+	log                 *slog.Logger
 }
 
 type clotheAuditEvent struct {
@@ -46,17 +49,20 @@ type clotheAnalysisRequestPayload struct {
 
 func NewClotheService(
 	repo ports.ClotheRepository,
+	styleRepo ports.StyleRepository,
 	events ports.EventPublisher,
 	analysisTopic string,
 	storage ports.StorageUploader,
 	logger *slog.Logger,
 ) *ClotheService {
 	return &ClotheService{
-		clotheRepository: repo,
-		eventPublisher:   events,
-		analysisTopic:    analysisTopic,
-		storage:          storage,
-		log:              logger.With("service", "clothe"),
+		clotheRepository:     repo,
+		styleRepository:      styleRepo,
+		recommendationEngine: NewRecommendationEngine(),
+		eventPublisher:       events,
+		analysisTopic:        analysisTopic,
+		storage:              storage,
+		log:                  logger.With("service", "clothe"),
 	}
 }
 
@@ -199,62 +205,48 @@ func (s *ClotheService) publishAnalysisRequest(ctx context.Context, garment *dom
 	}
 }
 
-// GetRecommendations generates basic outfit combinations based on the user's wardrobe.
-// It groups clothes by category (Top, Bottom, Footwear) and creates random complete outfits.
-func (s *ClotheService) GetRecommendations(ctx context.Context, userID string) ([]domain.OutfitRecommendation, error) {
-	garments, err := s.clotheRepository.ListClothesByUser(ctx, userID)
+// GetRecommendations scores outfit combinations from ML metadata (color harmony, season, occasion, etc.).
+func (s *ClotheService) GetRecommendations(ctx context.Context, req domain.RecommendationRequest) ([]domain.OutfitRecommendation, error) {
+	garments, err := s.clotheRepository.ListClothesByUser(ctx, req.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user wardrobe: %w", err)
 	}
 
-	var tops []domain.Garment
-	var bottoms []domain.Garment
-	var shoes []domain.Garment
-
-	// Group clothes by their category detected by the ML service
-	for _, g := range garments {
-		if g.Status != "completed" {
-			continue
+	var prefs *domain.UserStylePreferences
+	if s.styleRepository != nil {
+		p, err := s.styleRepository.GetUserStylePreferences(ctx, req.UserID)
+		if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+			return nil, fmt.Errorf("failed to load style preferences: %w", err)
 		}
-
-		category := g.Category
-		if category == "" {
-			category = g.GarmentType // Fallback to raw type if category is missing
-		}
-
-		// Simple matching for categories in both English and Spanish
-		switch category {
-		case "shirt", "jacket", "Camiseta", "top", "dress":
-			tops = append(tops, g)
-		case "pants", "Pantalón", "bottom":
-			bottoms = append(bottoms, g)
-		case "shoes", "Calzado":
-			shoes = append(shoes, g)
-		}
+		prefs = p
 	}
 
-	var recommendations []domain.OutfitRecommendation
-
-	// Only generate outfits if we have at least one item of each type
-	if len(tops) > 0 && len(bottoms) > 0 && len(shoes) > 0 {
-		r := rand.New(rand.NewSource(time.Now().UnixNano()))
-		maxOutfits := 3
-		for i := 0; i < maxOutfits; i++ {
-			top := tops[r.Intn(len(tops))]
-			bottom := bottoms[r.Intn(len(bottoms))]
-			shoe := shoes[r.Intn(len(shoes))]
-
-			outfit := domain.OutfitRecommendation{
-				ID:          fmt.Sprintf("rec-%s-%d", userID, time.Now().UnixNano()),
-				Name:        fmt.Sprintf("Outfit Recommendation #%d", i+1),
-				Top:         top,
-				Bottom:      bottom,
-				Footwear:    shoe,
-				Description: "A great combination built from your wardrobe!",
-			}
-			recommendations = append(recommendations, outfit)
-		}
+	recommendations := s.recommendationEngine.Recommend(req, garments, prefs)
+	if recommendations == nil {
+		return []domain.OutfitRecommendation{}, nil
 	}
-
 	return recommendations, nil
+}
+
+// GetUserStylePreferences returns saved palette/style filters for a user.
+func (s *ClotheService) GetUserStylePreferences(ctx context.Context, userID string) (*domain.UserStylePreferences, error) {
+	if s.styleRepository == nil {
+		return nil, fmt.Errorf("style repository not configured")
+	}
+	prefs, err := s.styleRepository.GetUserStylePreferences(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get style preferences: %w", err)
+	}
+	return prefs, nil
+}
+
+// UpsertUserStylePreferences saves palette and style filters for a user.
+func (s *ClotheService) UpsertUserStylePreferences(ctx context.Context, prefs *domain.UserStylePreferences) error {
+	if s.styleRepository == nil {
+		return fmt.Errorf("style repository not configured")
+	}
+	if err := s.styleRepository.UpsertUserStylePreferences(ctx, prefs); err != nil {
+		return fmt.Errorf("failed to save style preferences: %w", err)
+	}
+	return nil
 }

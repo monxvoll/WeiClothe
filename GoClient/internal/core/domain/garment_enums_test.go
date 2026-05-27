@@ -37,6 +37,14 @@ func TestValidateGarmentType(t *testing.T) {
 	if err := ValidateGarmentType("Shirt"); err != nil {
 		t.Fatalf("Shirt should be valid (case-insensitive): %v", err)
 	}
+	got, err := ResolveGarmentType("person")
+	if err != nil || got != "unknown" {
+		t.Fatalf("person should map to unknown, got %q err=%v", got, err)
+	}
+	got, err = ResolveGarmentType("")
+	if err != nil || got != "unknown" {
+		t.Fatalf("empty should default to unknown, got %q err=%v", got, err)
+	}
 	if err := ValidateGarmentType("hat"); err == nil {
 		t.Fatal("hat should be invalid")
 	}

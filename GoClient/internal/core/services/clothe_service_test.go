@@ -115,7 +115,7 @@ func (s *storageSpy) Delete(_ context.Context, key string) error { return nil }
 func TestClotheService_RegisterClothe_PublishesAuditEvent(t *testing.T) {
 	repo := &clotheRepoMock{}
 	pub := &eventPublisherSpy{}
-	svc := NewClotheService(repo, pub, "", nil, slog.Default())
+	svc := NewClotheService(repo, nil, pub, "", nil, slog.Default())
 
 	garment := &domain.Garment{
 		UserID:      "77",
@@ -141,7 +141,7 @@ func TestClotheService_RegisterClothe_PublishesAuditEvent(t *testing.T) {
 func TestClotheService_RegisterClothe_DoesNotFailWhenKafkaFails(t *testing.T) {
 	repo := &clotheRepoMock{}
 	pub := &eventPublisherSpy{publishErr: errors.New("kafka down")}
-	svc := NewClotheService(repo, pub, "", nil, slog.Default())
+	svc := NewClotheService(repo, nil, pub, "", nil, slog.Default())
 
 	garment := &domain.Garment{
 		UserID:      "77",
@@ -157,7 +157,7 @@ func TestClotheService_RegisterClothe_DoesNotFailWhenKafkaFails(t *testing.T) {
 func TestClotheService_RegisterClothe_ReturnsRepoError(t *testing.T) {
 	repo := &clotheRepoMock{createErr: errors.New("insert failed")}
 	pub := &eventPublisherSpy{}
-	svc := NewClotheService(repo, pub, "", nil, slog.Default())
+	svc := NewClotheService(repo, nil, pub, "", nil, slog.Default())
 
 	garment := &domain.Garment{
 		UserID:      "77",
@@ -178,7 +178,7 @@ func TestClotheService_RegisterClothe_PublishesAnalysisRequest(t *testing.T) {
 	pub := &eventPublisherSpy{}
 	topic := "vusion.analysis.request"
 	store := &storageSpy{}
-	svc := NewClotheService(repo, pub, topic, store, slog.Default())
+	svc := NewClotheService(repo, nil, pub, topic, store, slog.Default())
 
 	garment := &domain.Garment{
 		UserID:      "77",
@@ -214,7 +214,7 @@ func TestClotheService_RegisterClothe_SkipsAnalysisWhenTopicEmpty(t *testing.T) 
 	repo := &clotheRepoMock{}
 	pub := &eventPublisherSpy{}
 	store := &storageSpy{}
-	svc := NewClotheService(repo, pub, "", store, slog.Default())
+	svc := NewClotheService(repo, nil, pub, "", store, slog.Default())
 
 	garment := &domain.Garment{UserID: "77", GarmentType: "shirt"}
 	raw := []byte{1, 2, 3}

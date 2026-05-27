@@ -79,6 +79,23 @@ CREATE INDEX idx_clothes_user_id ON clothes(user_id);
 CREATE INDEX idx_clothes_status ON clothes(status);
 CREATE INDEX idx_clothes_category ON clothes(category);
 CREATE INDEX idx_clothes_processed_at ON clothes(processed_at);
+CREATE INDEX idx_clothes_color ON clothes(color);
+CREATE INDEX idx_clothes_material ON clothes(material);
+CREATE INDEX idx_clothes_occasion ON clothes(occasion);
+CREATE INDEX idx_clothes_season ON clothes(season);
+CREATE INDEX idx_clothes_pattern ON clothes(pattern);
 CREATE INDEX idx_clothe_detections_clothe_id ON clothe_detections(clothe_id);
 
--- TODO: Update style name in the diagram
+CREATE TABLE user_style_preferences (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(sub_keycloak),
+    preferred_colors TEXT[] NOT NULL DEFAULT '{}',
+    preferred_occasions TEXT[] NOT NULL DEFAULT '{}',
+    preferred_seasons TEXT[] NOT NULL DEFAULT '{}',
+    avoid_colors TEXT[] NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id)
+);
+
+CREATE INDEX idx_user_style_preferences_user_id ON user_style_preferences(user_id);

@@ -192,7 +192,7 @@ func main() {
 
 	r.Use(mw.RequestIDMiddleware(logger))
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:4200"}, // La URL exacta de tu Angular
+		AllowOrigins:     []string{"http://localhost:4200", "http://localhost:4201", "http://localhost:4202"}, // URLs de Angular (WeiClothe, Urban, Karen)
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},

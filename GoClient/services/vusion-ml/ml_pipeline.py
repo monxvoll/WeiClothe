@@ -14,6 +14,190 @@ _clip_processor = None
 _clip_model = None
 _torch = None
 
+# --- CLIP zero-shot label sets (text prompts → canonical values) ---
+
+CATEGORY_LABELS = [
+    "a photo of a shirt",
+    "a photo of pants or trousers",
+    "a photo of a dress",
+    "a photo of shoes",
+    "a photo of a jacket or coat",
+    "a photo of a bag",
+    "a photo of a hat",
+    "a photo of clothing",
+]
+CATEGORY_MAPPING = ["shirt", "pants", "dress", "shoes", "jacket", "bag", "hat", "other"]
+
+COLOR_LABELS = [
+    "a photo of a red garment",
+    "a photo of a blue garment",
+    "a photo of a black garment",
+    "a photo of a white garment",
+    "a photo of a green garment",
+    "a photo of a yellow garment",
+    "a photo of a pink garment",
+    "a photo of an orange garment",
+    "a photo of a purple garment",
+    "a photo of a brown garment",
+    "a photo of a gray garment",
+    "a photo of a beige or cream garment",
+    "a photo of a navy garment",
+    "a photo of a multicolor garment",
+]
+COLOR_MAPPING = [
+    "red",
+    "blue",
+    "black",
+    "white",
+    "green",
+    "yellow",
+    "pink",
+    "orange",
+    "purple",
+    "brown",
+    "gray",
+    "beige",
+    "navy",
+    "multicolor",
+]
+
+MATERIAL_LABELS = [
+    "a garment made of cotton fabric",
+    "a garment made of denim or jeans fabric",
+    "a garment made of leather",
+    "a garment made of silk or satin fabric",
+    "a garment made of wool or knit fabric",
+    "a garment made of polyester or synthetic fabric",
+    "a garment made of linen fabric",
+    "a garment made of suede or velvet fabric",
+]
+MATERIAL_MAPPING = ["cotton", "denim", "leather", "silk", "wool", "polyester", "linen", "suede"]
+
+PATTERN_LABELS = [
+    "a garment with a solid plain color",
+    "a garment with stripes",
+    "a garment with a checkered or plaid pattern",
+    "a garment with a floral pattern",
+    "a garment with polka dots",
+    "a garment with a camouflage pattern",
+    "a garment with a graphic or print design",
+    "a garment with an animal print pattern",
+]
+PATTERN_MAPPING = [
+    "solid",
+    "striped",
+    "checkered",
+    "floral",
+    "polka_dots",
+    "camouflage",
+    "graphic",
+    "animal_print",
+]
+
+SEASON_LABELS = [
+    "a garment suitable for summer or warm weather",
+    "a garment suitable for winter or cold weather",
+    "a garment suitable for spring weather",
+    "a garment suitable for autumn or fall weather",
+    "a garment suitable for all seasons",
+]
+SEASON_MAPPING = ["summer", "winter", "spring", "fall", "all_season"]
+
+OCCASION_LABELS = [
+    "a garment for casual everyday wear",
+    "a garment for formal or business wear",
+    "a garment for sportswear or athletic use",
+    "a garment for party or evening wear",
+    "a garment for outdoor or adventure wear",
+    "a garment for beachwear",
+]
+OCCASION_MAPPING = ["casual", "formal", "sport", "party", "outdoor", "beach"]
+
+# category → (text prompts, canonical subcategory slugs)
+SUBCATEGORY_MAP: dict[str, tuple[list[str], list[str]]] = {
+    "shirt": (
+        [
+            "a photo of a t-shirt",
+            "a photo of a polo shirt",
+            "a photo of a dress shirt",
+            "a photo of a blouse",
+            "a photo of a tank top",
+            "a photo of a hoodie",
+        ],
+        ["t_shirt", "polo", "dress_shirt", "blouse", "tank_top", "hoodie"],
+    ),
+    "pants": (
+        [
+            "a photo of jeans",
+            "a photo of chino pants",
+            "a photo of jogger pants",
+            "a photo of shorts",
+            "a photo of dress pants",
+            "a photo of cargo pants",
+        ],
+        ["jeans", "chinos", "joggers", "shorts", "dress_pants", "cargo_pants"],
+    ),
+    "dress": (
+        [
+            "a photo of a maxi dress",
+            "a photo of a mini dress",
+            "a photo of a midi dress",
+            "a photo of a sundress",
+            "a photo of a cocktail dress",
+        ],
+        ["maxi_dress", "mini_dress", "midi_dress", "sundress", "cocktail_dress"],
+    ),
+    "jacket": (
+        [
+            "a photo of a blazer",
+            "a photo of a bomber jacket",
+            "a photo of a denim jacket",
+            "a photo of a parka",
+            "a photo of a cardigan",
+            "a photo of a vest",
+        ],
+        ["blazer", "bomber", "denim_jacket", "parka", "cardigan", "vest"],
+    ),
+    "shoes": (
+        [
+            "a photo of sneakers",
+            "a photo of boots",
+            "a photo of sandals",
+            "a photo of high heels",
+            "a photo of loafers",
+            "a photo of flat shoes",
+        ],
+        ["sneakers", "boots", "sandals", "heels", "loafers", "flats"],
+    ),
+    "bag": (
+        [
+            "a photo of a handbag",
+            "a photo of a backpack",
+            "a photo of a tote bag",
+            "a photo of a crossbody bag",
+        ],
+        ["handbag", "backpack", "tote", "crossbody"],
+    ),
+    "hat": (
+        [
+            "a photo of a baseball cap",
+            "a photo of a beanie",
+            "a photo of a sun hat",
+            "a photo of a fedora",
+        ],
+        ["baseball_cap", "beanie", "sun_hat", "fedora"],
+    ),
+    "other": (
+        [
+            "a photo of a scarf",
+            "a photo of a belt",
+            "a photo of gloves",
+            "a photo of general clothing",
+        ],
+        ["scarf", "belt", "gloves", "general"],
+    ),
+}
+
 
 @dataclass
 class DetectionRecord:
@@ -36,6 +220,9 @@ class PipelineResult:
     subcategory: str | None
     color: str | None
     pattern: str | None
+    material: str | None
+    season: str | None
+    occasion: str | None
     confidence: float
     model_name: str
     model_version: str
@@ -65,32 +252,86 @@ def _get_clip(config: ServiceConfig):
     return _clip_processor, _clip_model, _torch
 
 
-def _clip_category(rgb_crop: np.ndarray, config: ServiceConfig) -> tuple[str, float]:
+def _clip_classify(
+    rgb_crop: np.ndarray,
+    labels: list[str],
+    mapping: list[str],
+    config: ServiceConfig,
+) -> tuple[str, float]:
+    """Generic CLIP zero-shot: one forward pass per attribute group."""
+    if rgb_crop.size == 0:
+        return mapping[0] if mapping else "unknown", 0.0
+    if len(labels) != len(mapping):
+        raise ValueError("labels and mapping must have the same length")
+
     processor, model, torch = _get_clip(config)
     from PIL import Image
 
-    if rgb_crop.size == 0:
-        return "unknown", 0.0
     pil = Image.fromarray(rgb_crop)
-    labels = [
-        "a photo of a shirt",
-        "a photo of pants or trousers",
-        "a photo of a dress",
-        "a photo of shoes",
-        "a photo of a jacket or coat",
-        "a photo of a bag",
-        "a photo of a hat",
-        "a photo of clothing",
-    ]
     inputs = processor(text=labels, images=pil, return_tensors="pt", padding=True)
     with torch.no_grad():
         outputs = model(**inputs)
         logits = outputs.logits_per_image
         probs = logits.softmax(dim=1)[0]
         best = int(probs.argmax())
-        conf = float(probs[best])
-    mapping = ["shirt", "pants", "dress", "shoes", "jacket", "bag", "hat", "other"]
-    return mapping[best], conf
+    return mapping[best], float(probs[best])
+
+
+def _clip_category(rgb_crop: np.ndarray, config: ServiceConfig) -> tuple[str, float]:
+    return _clip_classify(rgb_crop, CATEGORY_LABELS, CATEGORY_MAPPING, config)
+
+
+def _clip_color(rgb_crop: np.ndarray, config: ServiceConfig) -> tuple[str, float]:
+    return _clip_classify(rgb_crop, COLOR_LABELS, COLOR_MAPPING, config)
+
+
+def _clip_material(rgb_crop: np.ndarray, config: ServiceConfig) -> tuple[str, float]:
+    return _clip_classify(rgb_crop, MATERIAL_LABELS, MATERIAL_MAPPING, config)
+
+
+def _clip_pattern(rgb_crop: np.ndarray, config: ServiceConfig) -> tuple[str, float]:
+    return _clip_classify(rgb_crop, PATTERN_LABELS, PATTERN_MAPPING, config)
+
+
+def _clip_season(rgb_crop: np.ndarray, config: ServiceConfig) -> tuple[str, float]:
+    return _clip_classify(rgb_crop, SEASON_LABELS, SEASON_MAPPING, config)
+
+
+def _clip_occasion(rgb_crop: np.ndarray, config: ServiceConfig) -> tuple[str, float]:
+    return _clip_classify(rgb_crop, OCCASION_LABELS, OCCASION_MAPPING, config)
+
+
+def _clip_subcategory(
+    rgb_crop: np.ndarray,
+    category: str,
+    config: ServiceConfig,
+) -> tuple[str | None, float]:
+    entry = SUBCATEGORY_MAP.get(category)
+    if entry is None:
+        return None, 0.0
+    labels, mapping = entry
+    return _clip_classify(rgb_crop, labels, mapping, config)
+
+
+def _extract_metadata(rgb_crop: np.ndarray, config: ServiceConfig) -> dict[str, str | None]:
+    """Run all CLIP attribute classifiers on the garment crop."""
+    cat, cat_conf = _clip_category(rgb_crop, config)
+    color, _ = _clip_color(rgb_crop, config)
+    material, _ = _clip_material(rgb_crop, config)
+    pattern, _ = _clip_pattern(rgb_crop, config)
+    season, _ = _clip_season(rgb_crop, config)
+    occasion, _ = _clip_occasion(rgb_crop, config)
+    subcat, _ = _clip_subcategory(rgb_crop, cat, config)
+    return {
+        "category": cat,
+        "category_confidence": cat_conf,
+        "subcategory": subcat,
+        "color": color,
+        "material": material,
+        "pattern": pattern,
+        "season": season,
+        "occasion": occasion,
+    }
 
 
 def _compress_png_min_resolution(img, min_ratio: float = 0.8) -> tuple[bytes, int, int]:
@@ -110,6 +351,39 @@ def _compress_png_min_resolution(img, min_ratio: float = 0.8) -> tuple[bytes, in
         raw = buf.getvalue()
     out = Image.open(io.BytesIO(raw))
     return raw, out.width, out.height
+
+
+def _pipeline_result_full_frame(im_bgr, config: ServiceConfig) -> PipelineResult:
+    """Fallback when YOLO finds no boxes: segment whole frame and run CLIP on it."""
+    import cv2
+    from PIL import Image
+
+    h0, w0 = im_bgr.shape[:2]
+    im_rgb = cv2.cvtColor(im_bgr, cv2.COLOR_BGR2RGB)
+    alpha = np.full((h0, w0), 255, dtype=np.uint8)
+    rgba = np.dstack([im_rgb, alpha])
+    pil_rgba = Image.fromarray(rgba, mode="RGBA")
+    png_bytes, fw, fh = _compress_png_min_resolution(pil_rgba, 0.8)
+    meta = _extract_metadata(im_rgb, config)
+    category = meta["category"] or "unknown"
+    return PipelineResult(
+        processed_png_bytes=png_bytes,
+        image_width=fw,
+        image_height=fh,
+        garment_type=category,
+        category=category,
+        subcategory=meta["subcategory"],
+        color=meta["color"],
+        pattern=meta["pattern"],
+        material=meta["material"],
+        season=meta["season"],
+        occasion=meta["occasion"],
+        confidence=meta["category_confidence"],
+        model_name=config.yolo_model,
+        model_version="ultralytics",
+        detections=[],
+        classification_id=None,
+    )
 
 
 def run_pipeline(image_bytes: bytes, config: ServiceConfig) -> PipelineResult:
@@ -134,7 +408,7 @@ def run_pipeline(image_bytes: bytes, config: ServiceConfig) -> PipelineResult:
     r = results[0]
 
     if r.boxes is None or len(r.boxes) == 0:
-        raise ValueError("YOLO found no detections")
+        return _pipeline_result_full_frame(im_bgr, config)
 
     boxes = r.boxes
     best_i = int(boxes.conf.argmax())
@@ -191,7 +465,7 @@ def run_pipeline(image_bytes: bytes, config: ServiceConfig) -> PipelineResult:
     bx1, by1 = max(0, bx1), max(0, by1)
     bx2, by2 = min(w0, bx2), min(h0, by2)
     crop = im_rgb[by1:by2, bx1:bx2]
-    cat, cconf = _clip_category(crop if crop.size else im_rgb, config)
+    meta = _extract_metadata(crop if crop.size else im_rgb, config)
 
     cls_best = int(boxes.cls[best_i].cpu().numpy())
     if isinstance(names_map, dict):
@@ -204,11 +478,14 @@ def run_pipeline(image_bytes: bytes, config: ServiceConfig) -> PipelineResult:
         image_width=fw,
         image_height=fh,
         garment_type=best_name,
-        category=cat,
-        subcategory=None,
-        color=None,
-        pattern="solid",
-        confidence=cconf,
+        category=meta["category"],
+        subcategory=meta["subcategory"],
+        color=meta["color"],
+        pattern=meta["pattern"],
+        material=meta["material"],
+        season=meta["season"],
+        occasion=meta["occasion"],
+        confidence=meta["category_confidence"],
         model_name=config.yolo_model,
         model_version="ultralytics",
         detections=detections,

@@ -126,12 +126,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
       S3_BUCKET: ${S3_BUCKET:-weicloth}
     entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 \"$${MINIO_ROOT_USER}\" \"$${MINIO_ROOT_PASSWORD}\";
-      mc mb local/$${S3_BUCKET} --ignore-existing;
-      mc anonymous set download local/$${S3_BUCKET};
-      exit 0
-      "
+      /bin/sh -c " mc alias set local http://minio:9000 \"$${MINIO_ROOT_USER}\" \"$${MINIO_ROOT_PASSWORD}\"; mc mb local/$${S3_BUCKET} --ignore-existing; mc anonymous set download local/$${S3_BUCKET}; exit 0 "
 
   # UI web for topics/messages: image "Redpanda Console" but speaks Kafka standard protocol.
   # Broker = service `kafka` (Apache Kafka). URL host: http://localhost:8080
@@ -228,6 +223,7 @@ services:
       KAFKA_TOPIC_ANALYSIS_DLQ: ${KAFKA_TOPIC_ANALYSIS_DLQ:-vusion.analysis.dlq}
       KAFKA_GROUP_ID: ${KAFKA_GROUP_ID:-vusion-ml-analysis}
       ENABLE_ANALYSIS_CONSUMER: ${ENABLE_ANALYSIS_CONSUMER:-true}
+      HF_HUB_DOWNLOAD_TIMEOUT: "120"
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_USER: ${DB_USER}

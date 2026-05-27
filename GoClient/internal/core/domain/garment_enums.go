@@ -26,6 +26,31 @@ var (
 		"shoes":   {},
 		"unknown": {},
 	}
+	// Common client / YOLO labels mapped to product garment_type values.
+	garmentTypeAliases = map[string]string{
+		"top":       "shirt",
+		"t-shirt":   "shirt",
+		"tshirt":    "shirt",
+		"tee":       "shirt",
+		"blouse":    "shirt",
+		"camisa":    "shirt",
+		"trousers":  "pants",
+		"trouser":   "pants",
+		"jeans":     "pants",
+		"shorts":    "pants",
+		"pantalon":  "pants",
+		"pantalones": "pants",
+		"sneakers":  "shoes",
+		"sneaker":   "shoes",
+		"boots":     "shoes",
+		"boot":      "shoes",
+		"zapatos":   "shoes",
+		"coat":      "jacket",
+		"sweater":   "jacket",
+		"hoodie":    "jacket",
+		"vestido":   "dress",
+		"person":    "unknown",
+	}
 )
 
 // ValidateGarmentStatus returns an error when status is not a known lifecycle value.
@@ -44,13 +69,25 @@ func ValidateGarmentSource(source string) error {
 	return nil
 }
 
+// ResolveGarmentType normalizes client input (aliases, case) and defaults empty to unknown.
+func ResolveGarmentType(garmentType string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(garmentType))
+	if normalized == "" {
+		return "unknown", nil
+	}
+	if alias, ok := garmentTypeAliases[normalized]; ok {
+		normalized = alias
+	}
+	if _, ok := garmentTypes[normalized]; !ok {
+		return "", &apperrors.ValidationError{Field: "garment_type", Message: "invalid garment_type"}
+	}
+	return normalized, nil
+}
+
 // ValidateGarmentType returns an error when garment_type is not in the product allowlist.
 func ValidateGarmentType(garmentType string) error {
-	normalized := strings.ToLower(strings.TrimSpace(garmentType))
-	if _, ok := garmentTypes[normalized]; !ok {
-		return &apperrors.ValidationError{Field: "garment_type", Message: "invalid garment_type"}
-	}
-	return nil
+	_, err := ResolveGarmentType(garmentType)
+	return err
 }
 
 // ValidateOptionalGarmentStatus validates status when non-empty.

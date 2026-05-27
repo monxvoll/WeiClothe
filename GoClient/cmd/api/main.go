@@ -118,9 +118,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	clotheService := services.NewClotheService(clotheRepo, producer, analysisTopic, storage, logger)
-
-	_ = styleRepo
+	clotheService := services.NewClotheService(clotheRepo, styleRepo, producer, analysisTopic, storage, logger)
 
 	/*
 		Integration tests in-process (uncomment to exercise Keycloak, Postgres, Kafka flows).
